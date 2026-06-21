@@ -80,11 +80,17 @@ def render() -> None:
         "sensitivities, state scope, solve toggle, and formulas. Another user who "
         "imports it will reproduce your results exactly."
     )
-    from app.state import load_model_json, model_json
-    mc = st.columns([1, 2])
+    from app.state import assumptions_xlsx, load_model_json, model_json
+    mc = st.columns([1, 1, 2])
     mc[0].download_button("Download full model (JSON)", model_json(),
                           "medigap_model.json", "application/json", key="cfg_model_download")
-    up = mc[1].file_uploader("Import full model JSON", type=["json"], key="model_upload")
+    mc[1].download_button(
+        "Download assumptions (Excel)", assumptions_xlsx(), "assumptions.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="cfg_xlsx_download",
+        help="All assumptions plus the engine's derived factors, one sheet per "
+        "category — for verifying the model in Excel.")
+    up = mc[2].file_uploader("Import full model JSON", type=["json"], key="model_upload")
     if up is not None:
         try:
             load_model_json(up.getvalue().decode("utf-8"))

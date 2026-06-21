@@ -14,6 +14,7 @@ import streamlit as st
 
 from medigap_engine.engine.formulas import default_formula_set
 from medigap_engine.io.defaults import build_cells, default_assumptions
+from medigap_engine.io.excel_export import assumptions_to_xlsx_bytes
 from medigap_engine.io.model_io import model_from_dict, model_to_dict
 from medigap_engine.io.serialize import assumptions_from_dict, assumptions_to_dict
 from medigap_engine.models.config import RunConfig
@@ -71,6 +72,11 @@ def assumptions_json() -> str:
 
 def load_assumptions_json(text: str) -> None:
     st.session_state.assumptions = assumptions_from_dict(json.loads(text))
+
+
+def assumptions_xlsx() -> bytes:
+    """Current assumptions as a multi-sheet Excel workbook (for download)."""
+    return assumptions_to_xlsx_bytes(st.session_state.assumptions)
 
 
 def model_json() -> str:

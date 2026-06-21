@@ -8,11 +8,14 @@ import streamlit as st
 
 from app.state import (
     assumptions_json,
+    assumptions_xlsx,
     get_assumptions,
     load_assumptions_json,
     reset_assumptions,
 )
 from medigap_engine.models.assumptions import PROJECTION_YEARS
+
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _dict_editor(d, value_label, key, fmt="%.6f"):
@@ -33,15 +36,20 @@ def _dict_editor(d, value_label, key, fmt="%.6f"):
 def render() -> None:
     st.header("Assumptions")
 
-    top = st.columns([1, 1, 2])
+    top = st.columns([1, 1, 1, 2])
     with top[0]:
         st.download_button("Download JSON", assumptions_json(),
                            "assumptions.json", "application/json", key="asm_download")
     with top[1]:
+        st.download_button("Download Excel", assumptions_xlsx(),
+                           "assumptions.xlsx", _XLSX_MIME, key="asm_xlsx_download",
+                           help="All assumptions plus the engine's derived factors, "
+                           "one sheet per category — for verifying the model in Excel.")
+    with top[2]:
         if st.button("Reset to defaults", key="asm_reset"):
             reset_assumptions()
             st.rerun()
-    with top[2]:
+    with top[3]:
         up = st.file_uploader("Upload assumptions JSON", type=["json"], key="asm_upload")
         if up is not None:
             load_assumptions_json(up.getvalue().decode("utf-8"))
