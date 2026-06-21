@@ -824,6 +824,7 @@
   "gender_diff": 0.15,
   "preferred_diff": 0.1,
   "hhd_diff": 0.14,
+  "premium_trend": 0.05,
   "state_factor": {
    "TX": 1.0,
    "All": 1.013108,

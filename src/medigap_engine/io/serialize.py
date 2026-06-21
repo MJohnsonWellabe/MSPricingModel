@@ -57,6 +57,7 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
         preferred_diff=float(p["preferred_diff"]),
         hhd_diff=float(p["hhd_diff"]),
         state_factor={k: float(v) for k, v in p["state_factor"].items()},
+        premium_trend=float(p.get("premium_trend", 0.0)),
     )
     dist = d["distribution"]
     distribution = DistributionAssumptions(
@@ -116,6 +117,7 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
             "plan_rel": p.plan_rel, "uw_rel": p.uw_rel,
             "gender_diff": p.gender_diff, "preferred_diff": p.preferred_diff,
             "hhd_diff": p.hhd_diff, "state_factor": p.state_factor,
+            "premium_trend": p.premium_trend,
         },
         "rerates": {
             "solve": r.solve, "specified_rerates": r.specified_rerates,

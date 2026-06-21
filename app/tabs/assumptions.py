@@ -204,6 +204,17 @@ def _premium(asm) -> None:
     st.markdown("**State factor** (raw)")
     p.state_factor = _dict_editor(p.state_factor, "Factor", "prem_state")
 
+    st.subheader("Premium trend (bring current premium forward)")
+    p.premium_trend = st.number_input(
+        "Annual premium trend", value=float(p.premium_trend), step=0.01, format="%.3f",
+        help="Brings the current premium level forward to the pricing period, just like the "
+             "claims first-year trend brings current claims forward — over the same window.")
+    exp = asm.morbidity.trend_first_year_exponent
+    st.caption(f"→ one-time bring-forward factor: (1 + {p.premium_trend:.3f})^{exp:.2f} = "
+               f"{(1.0 + p.premium_trend) ** exp:.5f} "
+               f"(uses the same {exp:.2f}-period as the claims first-year trend exponent on "
+               f"the Morbidity tab). Future premium changes are driven by the rerate solver.")
+
 
 def _distribution(asm) -> None:
     d = asm.distribution
@@ -282,22 +293,32 @@ def _commission(asm) -> None:
 def _economic(asm) -> None:
     o = asm.other
     st.subheader("Economic assumptions")
-    fields = [
+
+    def _group(title, fields):
+        st.markdown(f"**{title}**")
+        cols = st.columns(3)
+        for i, (key, label) in enumerate(fields):
+            new = cols[i % 3].number_input(label, value=float(getattr(o, key)),
+                                           format="%.4f", key=f"econ_{key}")
+            setattr(o, key, new)
+
+    _group("Discounting & investment", [
         ("discount_rate", "Discount rate"),
-        ("premium_tax", "Premium tax"),
+        ("nier", "NIER (investment return)"),
+        ("inflation", "Inflation"),
+    ])
+    _group("Per-policy expenses ($)", [
         ("oper_acq", "Operating acquisition ($)"),
         ("marketing_acq", "Marketing acquisition ($)"),
         ("maintenance", "Maintenance ($)"),
-        ("inflation", "Inflation"),
-        ("rbc_factor", "RBC factor"),
-        ("covariance", "Covariance"),
-        ("rbc_pct_of_prem", "RBC as % of premium"),
-        ("nier", "NIER (investment return)"),
+    ])
+    _group("Taxes & loadings", [
+        ("premium_tax", "Premium tax"),
         ("tax_rate", "Tax rate"),
         ("ibnr_pct", "IBNR as % of claims"),
-    ]
-    cols = st.columns(3)
-    for i, (key, label) in enumerate(fields):
-        val = float(getattr(o, key))
-        new = cols[i % 3].number_input(label, value=val, format="%.4f")
-        setattr(o, key, new)
+    ])
+    _group("Capital (RBC)", [
+        ("rbc_pct_of_prem", "RBC as % of premium"),
+        ("rbc_factor", "RBC factor"),
+        ("covariance", "Covariance"),
+    ])

@@ -6,6 +6,7 @@ Streamlit rerun so the progress bar repaints under stlite.
 """
 from __future__ import annotations
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -111,8 +112,12 @@ def _show_results(results: dict) -> None:
     irrs = np.array([x for x in results[state]["irrs"] if x == x])  # drop nan
     if len(irrs):
         counts, edges = np.histogram(irrs, bins=20)
-        centers = [f"{(edges[i] + edges[i + 1]) / 2 * 100:.1f}%" for i in range(len(counts))]
-        st.bar_chart(pd.DataFrame({"count": counts}, index=centers))
+        centers = [(edges[i] + edges[i + 1]) / 2 for i in range(len(counts))]
+        hist = pd.DataFrame({"IRR": centers, "count": counts})
+        chart = alt.Chart(hist).mark_bar().encode(
+            x=alt.X("IRR:Q", axis=alt.Axis(format="%"), title="IRR"),
+            y=alt.Y("count:Q", title="Simulations"))
+        st.altair_chart(chart, use_container_width=True)
         st.caption(f"{len(irrs)} simulations with a finite IRR.")
     else:
         st.info("No finite IRRs in the draws (try different distributions).")

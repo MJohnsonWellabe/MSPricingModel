@@ -16,6 +16,7 @@ def test_round_trip_equains():
     assert b.morbidity.gender_cc_diff == a.morbidity.gender_cc_diff
     assert b.premium.gender_diff == a.premium.gender_diff
     assert b.premium.hhd_diff == a.premium.hhd_diff
+    assert b.premium.premium_trend == a.premium.premium_trend
     assert b.morbidity.preferred_diff == a.morbidity.preferred_diff
     assert b.termination.uw_lapse_rel == a.termination.uw_lapse_rel
     assert b.termination.base_lapse == a.termination.base_lapse
@@ -46,3 +47,12 @@ def test_default_assumptions_load_sane():
     assert a.morbidity.trend_first_year_exponent == 1.75
     assert a.rerates.target_lifetime_lr == 0.78
     assert a.rerates.in_year_lr_floor == 0.65
+    assert a.premium.premium_trend == 0.05
+
+
+def test_premium_trend_defaults_when_missing():
+    a = default_assumptions()
+    d = assumptions_to_dict(a)
+    del d["premium"]["premium_trend"]
+    b = assumptions_from_dict(d)
+    assert b.premium.premium_trend == 0.0

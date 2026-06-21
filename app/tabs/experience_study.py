@@ -25,6 +25,12 @@ def _read_csv_to_records(text: str) -> list[dict]:
     return df.to_dict("records")
 
 
+def _factor_df(mapping: dict, value_label: str) -> pd.DataFrame:
+    """Render a {label: float} mapping as a one-column table (sorted by key)."""
+    items = sorted(mapping.items(), key=lambda kv: kv[0])
+    return pd.DataFrame({value_label: {str(k): round(float(v), 5) for k, v in items}})
+
+
 def render() -> None:
     st.header("Experience Study")
     st.caption(
@@ -64,18 +70,46 @@ def _sales_section() -> None:
     agg = aggregate_sales(records)
     st.success(f"Parsed {agg['n_rows']:,} usable rows / {agg['total_count']:,.0f} applications.")
 
-    rows = []
-    for k, w in sorted(agg["weights"].items(), key=lambda kv: -kv[1]):
-        rows.append({
-            "Issue age": k[0], "Gender": k[1], "Plan": k[2], "UW": k[3],
-            "Pref": k[4], "HHD": k[5], "Weight": round(w, 5),
-            "Avg premium": round(agg["avg_premium"].get(k, 0.0), 2),
-        })
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True, height=320)
+    # Preview the *factors* the data suggests — exactly what Adopt will write —
+    # rather than the full 432-cell weight grid.
+    suggested = apply_sales(get_assumptions(), agg)
+    d = suggested.distribution
+    p = suggested.premium
+
+    st.markdown("#### Suggested distribution weight factors")
+    st.caption("Per-dimension marginal weights (each sums to 1); a cell's weight is their product.")
+    st.markdown("**By issue age**")
+    st.dataframe(_factor_df(d.by_issue_age, "Weight"), use_container_width=True)
+    cols = st.columns(3)
+    with cols[0]:
+        st.markdown("**Gender**"); st.dataframe(_factor_df(d.gender, "Weight"), use_container_width=True)
+        st.markdown("**Preferred**"); st.dataframe(_factor_df(d.preferred, "Weight"), use_container_width=True)
+    with cols[1]:
+        st.markdown("**Plan**"); st.dataframe(_factor_df(d.plan, "Weight"), use_container_width=True)
+        st.markdown("**HHD**"); st.dataframe(_factor_df(d.hhd, "Weight"), use_container_width=True)
+    with cols[2]:
+        st.markdown("**UW**"); st.dataframe(_factor_df(d.uw, "Weight"), use_container_width=True)
+
+    st.markdown("#### Suggested premium factors")
+    st.markdown("**Base premium by issue age** (plan-G blend)")
+    st.dataframe(_factor_df(p.base_by_issue_age, "Base premium"), use_container_width=True)
+    pc = st.columns(3)
+    with pc[0]:
+        st.markdown("**Plan relativities (G = 1.00)**")
+        st.dataframe(_factor_df(p.plan_rel, "Relativity"), use_container_width=True)
+        st.metric("Gender differential (M vs F)", f"{p.gender_diff * 100:.1f}%")
+    with pc[1]:
+        st.markdown("**UW relativities**")
+        st.dataframe(_factor_df(p.uw_rel, "Relativity"), use_container_width=True)
+        st.metric("Non-preferred differential", f"{p.preferred_diff * 100:.1f}%")
+    with pc[2]:
+        st.markdown("**State factor**")
+        st.dataframe(_factor_df(p.state_factor, "Factor"), use_container_width=True, height=220)
+        st.metric("Non-HHD differential", f"{p.hhd_diff * 100:.1f}%")
 
     if st.button("Adopt distribution & premiums", type="primary"):
         from app.state import set_assumptions
-        set_assumptions(apply_sales(get_assumptions(), agg))
+        set_assumptions(suggested)
         st.success("Adopted into the distribution and premium factor tables.")
 
 

@@ -90,6 +90,10 @@ view.
   single **differential** (e.g. male +15%, non-HHD +14%, non-preferred +10%) and the
   Y/N factors are derived, normalised by the business mix so the blend is preserved;
   **plan is anchored at G = 1.00**; uw is a relativity table; state is a raw factor.
+  The premium is then **brought forward to the pricing period** once by
+  `(1 + premium_trend)^E` (E = the same first-year trend exponent used for claims),
+  mirroring how current claims are trended forward; subsequent premium changes over the
+  projection are driven by the rerate solver, not by continued premium trend.
 - **Morbidity** works the same way: gender claim cost is a single differential
   (+15%) on the gender-blend base table; preferred/hhd are differentials.
 - **Distribution** = independent per-dimension weight factors that each sum to 1;

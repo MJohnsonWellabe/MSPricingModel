@@ -213,6 +213,7 @@ def build_factor_blocks(cells: list) -> tuple[dict, dict]:
         "gender_diff": diff("gender", "M", "F"),
         "preferred_diff": diff("preferred", "N", "Y"),
         "hhd_diff": diff("hhd", "N", "Y"),
+        "premium_trend": 0.05,
         "state_factor": state_factor,
     }
 

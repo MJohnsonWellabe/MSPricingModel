@@ -28,7 +28,9 @@ def base_claim_cost(asm: AssumptionSet, gender: str, attained_age: int, plan: st
 
 def premium_for_cell(asm: AssumptionSet, key, state: str) -> float:
     """Premium = base(blend at plan G) × plan relativity (G-anchored) × mix-normalised
-    gender/preferred/hhd differentials and uw relativity × raw state factor."""
+    gender/preferred/hhd differentials and uw relativity × raw state factor, brought
+    forward to the pricing period by the one-time premium trend (over the same window
+    as the claims first-year trend exponent)."""
     p = asm.premium
     dist = asm.distribution
     base = p.base_for_age(key.issue_age)
@@ -38,7 +40,8 @@ def premium_for_cell(asm: AssumptionSet, key, state: str) -> float:
     h = normalized_factors({"N": 1.0 + p.hhd_diff, "Y": 1.0}, dist.hhd).get(key.hhd, 1.0)
     uw = normalized_factors(p.uw_rel, dist.uw).get(key.uw_class, 1.0)
     sf = p.state_factor.get(state, p.state_factor.get("All", 1.0))
-    return base * plan_f * g * pr * h * uw * sf
+    bring_forward = (1.0 + p.premium_trend) ** asm.morbidity.trend_first_year_exponent
+    return base * plan_f * g * pr * h * uw * sf * bring_forward
 
 
 def claim_class_factors(asm: AssumptionSet, uw_class: str, preferred: str, hhd: str) -> float:

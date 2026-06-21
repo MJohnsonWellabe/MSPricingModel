@@ -8,6 +8,7 @@ def test_premium_is_factor_product(asm):
     p = asm.premium
     d = asm.distribution
     key = CellKey(65, "M", "G", "OE", "N", "N")
+    bring_forward = (1.0 + p.premium_trend) ** asm.morbidity.trend_first_year_exponent
     expected = (
         p.base_for_age(65)
         * p.plan_rel["G"]                                              # G anchored at 1.0
@@ -16,8 +17,28 @@ def test_premium_is_factor_product(asm):
         * normalized_factors({"N": 1 + p.preferred_diff, "Y": 1.0}, d.preferred)["N"]
         * normalized_factors({"N": 1 + p.hhd_diff, "Y": 1.0}, d.hhd)["N"]
         * p.state_factor["IA"]
+        * bring_forward
     )
     assert abs(L.premium_for_cell(asm, key, "IA") - expected) < 1e-9
+
+
+def test_premium_trend_brings_forward(asm):
+    key = CellKey(65, "M", "G", "OE", "N", "N")
+    exp = asm.morbidity.trend_first_year_exponent
+    untrended = copy_with_trend(asm, 0.0)
+    base = L.premium_for_cell(untrended, key, "IA")
+    asm.premium.premium_trend = 0.05
+    trended = L.premium_for_cell(asm, key, "IA")
+    assert abs(trended - base * (1.05) ** exp) < 1e-9
+    # zero trend reproduces the untrended premium exactly
+    assert abs(L.premium_for_cell(untrended, key, "IA") - base) < 1e-12
+
+
+def copy_with_trend(asm, trend):
+    import copy
+    a = copy.deepcopy(asm)
+    a.premium.premium_trend = trend
+    return a
 
 
 def test_plan_anchored_at_g(asm):

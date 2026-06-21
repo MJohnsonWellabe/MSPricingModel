@@ -100,6 +100,9 @@ class PremiumAssumptions:
     preferred_diff: float                    # premium: non-preferred this % above preferred
     hhd_diff: float                          # premium: non-hhd this % above hhd
     state_factor: dict[str, float]
+    premium_trend: float = 0.0               # annual trend to bring current premium forward
+                                             # to the pricing period (one-time, over the same
+                                             # window as the claims first-year trend exponent)
 
     def base_for_age(self, issue_age: int) -> float:
         base = self.base_by_issue_age.get(issue_age)
