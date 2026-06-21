@@ -28,6 +28,9 @@ jobs:
   build-and-deploy:
     needs: test
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - name: Assemble static site
