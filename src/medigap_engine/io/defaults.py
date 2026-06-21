@@ -45,28 +45,37 @@ def default_assumptions() -> AssumptionSet:
     return assumptions_from_dict(_load_json("default_assumptions.json"))
 
 
-@lru_cache(maxsize=1)
-def default_cells() -> tuple[PricingCell, ...]:
-    raw = _load_json("default_cells.json")
+def build_cells(asm: AssumptionSet) -> tuple[PricingCell, ...]:
+    """Generate the full pricing-cell cross-product, weighting each cell by the
+    product of the distribution factors. Cell dimensions come from the assumption
+    tables so they stay in sync with edits."""
+    dist = asm.distribution
+    ages = sorted(dist.by_issue_age) or list(asm.morbidity.ages)
+    genders = list(dist.gender) or ["M", "F"]
+    plans = list(dist.plan) or list(asm.morbidity.plans)
+    uws = list(dist.uw) or ["UW", "OE", "GI"]
+    prefs = list(dist.preferred) or ["Y", "N"]
+    hhds = list(dist.hhd) or ["Y", "N"]
     cells = []
-    for r in raw:
-        key = CellKey(
-            issue_age=int(r["issue_age"]), gender=r["gender"], plan=r["plan"],
-            uw_class=r["uw"], preferred=r["preferred"], hhd=r["hhd"],
-        )
-        cells.append(PricingCell(
-            key=key, base_prem=float(r["premium"]), weight=float(r["weight"]),
-            state_premiums=r.get("state_premiums") or {},
-        ))
+    for a in ages:
+        for g in genders:
+            for pl in plans:
+                for uw in uws:
+                    for pr in prefs:
+                        for h in hhds:
+                            key = CellKey(issue_age=int(a), gender=g, plan=pl,
+                                          uw_class=uw, preferred=pr, hhd=h)
+                            cells.append(PricingCell(key=key, weight=dist.weight(key)))
     return tuple(cells)
 
 
+def default_cells() -> tuple[PricingCell, ...]:
+    """Convenience: build cells from the bundled default assumptions."""
+    return build_cells(default_assumptions())
+
+
 def available_states() -> list[str]:
-    """States offered by the model (from the bundled cell premiums + the All book)."""
-    cells = default_cells()
-    states: set[str] = set()
-    for c in cells:
-        if c.state_premiums:
-            states.update(c.state_premiums.keys())
+    """States offered by the model (from the premium state-factor table)."""
+    states = set(default_assumptions().premium.state_factor)
     ordered = ["All"] + sorted(s for s in states if s != "All")
     return ordered

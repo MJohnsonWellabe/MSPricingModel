@@ -50,6 +50,7 @@ def test_solver_converges_or_diagnoses(asm, cells, base_sens):
     vec, info = solve_rerates(proj, asm)
     assert info["status"] in {
         "converged", "target_met_without_rerate", "target_unreachable",
+        "in_year_floor_bound",
     }
     if info["status"] == "converged":
         assert abs(info["achieved_lifetime_lr"] - 0.70) < 1e-2

@@ -15,6 +15,21 @@ from app.state import (
 from medigap_engine.models.assumptions import PROJECTION_YEARS
 
 
+def _dict_editor(d, value_label, key, fmt="%.6f"):
+    """Edit a {label: float} mapping as a one-column table; return the updated dict
+    preserving the original key types."""
+    types = {k: type(k) for k in d}
+    df = pd.DataFrame({value_label: d})
+    ed = st.data_editor(
+        df, use_container_width=True, key=key,
+        column_config={value_label: st.column_config.NumberColumn(format=fmt)})
+    out = {}
+    for idx, v in ed[value_label].items():
+        cast = types.get(idx, type(idx))
+        out[cast(idx) if cast in (int, float, str) else idx] = float(v)
+    return out
+
+
 def render() -> None:
     st.header("Assumptions")
 
@@ -34,21 +49,23 @@ def render() -> None:
 
     asm = get_assumptions()
     sub = st.tabs([
-        "Morbidity", "Rerates", "Distribution",
-        "Termination", "Commission", "Other",
+        "Morbidity", "Premium", "Rerates", "Distribution",
+        "Termination", "Commission", "Economic assumptions",
     ])
     with sub[0]:
         _morbidity(asm)
     with sub[1]:
-        _rerates(asm)
+        _premium(asm)
     with sub[2]:
-        _distribution(asm)
+        _rerates(asm)
     with sub[3]:
-        _termination(asm)
+        _distribution(asm)
     with sub[4]:
-        _commission(asm)
+        _termination(asm)
     with sub[5]:
-        _other(asm)
+        _commission(asm)
+    with sub[6]:
+        _economic(asm)
 
 
 def _morbidity(asm) -> None:
@@ -79,16 +96,17 @@ def _morbidity(asm) -> None:
     m.trend_by_year = ted["Trend"].tolist()
 
     st.subheader("State morbidity factors")
-    sdf = pd.DataFrame({"Factor": m.state_factors})
-    sed = st.data_editor(sdf, use_container_width=True, height=240, key="state_factors")
-    m.state_factors = sed["Factor"].to_dict()
+    m.state_factors = _dict_editor(m.state_factors, "Factor", "state_factors", fmt="%.5f")
 
     st.subheader("Household & preferred claim factors")
     c = st.columns(2)
-    c[0].caption("Preferred (applied for UW class only)")
-    c[0].write(m.preferred_factor)
-    c[1].caption("Household discount")
-    c[1].write(m.hhd_factor)
+    with c[0]:
+        st.caption("Preferred (applied for UW class only)")
+        m.preferred_factor = _dict_editor(m.preferred_factor, "Factor",
+                                          "claim_pref", fmt="%.5f")
+    with c[1]:
+        st.caption("Household discount")
+        m.hhd_factor = _dict_editor(m.hhd_factor, "Factor", "claim_hhd", fmt="%.5f")
     st.caption("Selection (antiselection) factors and claim-cost aging are shown "
                "read-only here; they will become editable in a later phase.")
 
@@ -132,35 +150,54 @@ def _rerates(asm) -> None:
     r.specified_rerates = red["Rerate"].tolist()
 
 
-def _distribution(asm) -> None:
-    import pandas as pd
-    from medigap_engine.models.cell import CellKey, PricingCell
+def _premium(asm) -> None:
+    p = asm.premium
+    st.subheader("Premium = base by issue age × factors")
+    st.caption("premium(cell, state) = base_by_issue_age × gender × plan × uw × "
+               "preferred × hhd × state.")
+    st.markdown("**Base premium by issue age**")
+    p.base_by_issue_age = _dict_editor(p.base_by_issue_age, "Base premium",
+                                       "prem_base", fmt="%.2f")
+    cols = st.columns(3)
+    with cols[0]:
+        st.markdown("**Gender factor**")
+        p.gender_factor = _dict_editor(p.gender_factor, "Factor", "prem_gender")
+        st.markdown("**Preferred factor**")
+        p.preferred_factor = _dict_editor(p.preferred_factor, "Factor", "prem_pref")
+    with cols[1]:
+        st.markdown("**Plan factor**")
+        p.plan_factor = _dict_editor(p.plan_factor, "Factor", "prem_plan")
+        st.markdown("**HHD factor**")
+        p.hhd_factor = _dict_editor(p.hhd_factor, "Factor", "prem_hhd")
+    with cols[2]:
+        st.markdown("**UW factor**")
+        p.uw_factor = _dict_editor(p.uw_factor, "Factor", "prem_uw")
+    st.markdown("**State factor**")
+    p.state_factor = _dict_editor(p.state_factor, "Factor", "prem_state")
 
-    st.subheader("Distribution of business — per-cell weights & premiums")
-    st.caption("Every pricing cell's distribution weight and base premium is an input. "
-               "Edit directly, or adopt from the Experience Study (Sales) tab. Weights "
-               "are re-normalised when the model runs.")
-    cells = st.session_state.cells
-    df = pd.DataFrame([{
-        "Issue age": c.key.issue_age, "Gender": c.key.gender, "Plan": c.key.plan,
-        "UW": c.key.uw_class, "Pref": c.key.preferred, "HHD": c.key.hhd,
-        "Weight": c.weight, "Base premium": c.base_prem,
-    } for c in cells])
-    edited = st.data_editor(
-        df, use_container_width=True, height=420, key="cells_editor",
-        disabled=["Issue age", "Gender", "Plan", "UW", "Pref", "HHD"])
-    total_w = float(edited["Weight"].sum())
-    st.caption(f"Weights sum to {total_w:.4f} (re-normalised to 1 at run time).")
-    # write edits back, preserving per-state premium overrides
-    new_cells = []
-    for orig, (_, row) in zip(cells, edited.iterrows()):
-        key = CellKey(issue_age=int(row["Issue age"]), gender=row["Gender"],
-                      plan=row["Plan"], uw_class=row["UW"],
-                      preferred=row["Pref"], hhd=row["HHD"])
-        new_cells.append(PricingCell(
-            key=key, base_prem=float(row["Base premium"]), weight=float(row["Weight"]),
-            state_premiums=orig.state_premiums))
-    st.session_state.cells = new_cells
+
+def _distribution(asm) -> None:
+    d = asm.distribution
+    st.subheader("Distribution weight factors")
+    st.caption("Each dimension's weights should sum to 1; a cell's weight is the "
+               "product across dimensions. Re-normalised at run time.")
+
+    def _dim(label, mapping, key):
+        new = _dict_editor(mapping, "Weight", key, fmt="%.5f")
+        st.caption(f"{label} sums to {sum(new.values()):.4f}")
+        return new
+
+    st.markdown("**By issue age**")
+    d.by_issue_age = _dim("Issue age", d.by_issue_age, "w_age")
+    cols = st.columns(3)
+    with cols[0]:
+        st.markdown("**Gender**"); d.gender = _dim("Gender", d.gender, "w_gender")
+        st.markdown("**Preferred**"); d.preferred = _dim("Preferred", d.preferred, "w_pref")
+    with cols[1]:
+        st.markdown("**Plan**"); d.plan = _dim("Plan", d.plan, "w_plan")
+        st.markdown("**HHD**"); d.hhd = _dim("HHD", d.hhd, "w_hhd")
+    with cols[2]:
+        st.markdown("**UW**"); d.uw = _dim("UW", d.uw, "w_uw")
 
 
 def _termination(asm) -> None:
@@ -200,9 +237,9 @@ def _commission(asm) -> None:
                                    value=c.age80_halving)
 
 
-def _other(asm) -> None:
+def _economic(asm) -> None:
     o = asm.other
-    st.subheader("Other assumptions")
+    st.subheader("Economic assumptions")
     fields = [
         ("discount_rate", "Discount rate"),
         ("premium_tax", "Premium tax"),

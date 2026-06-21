@@ -51,10 +51,58 @@ class RerateAssumptions:
 
 
 @dataclass
+class PremiumAssumptions:
+    """Premium as a multiplicative factor model:
+
+        premium(cell, state) = base_by_issue_age[age]
+            * gender_factor[g] * plan_factor[plan] * uw_factor[uw]
+            * preferred_factor[pref] * hhd_factor[hhd] * state_factor[state]
+    """
+    base_by_issue_age: dict[int, float]
+    gender_factor: dict[str, float]
+    plan_factor: dict[str, float]
+    uw_factor: dict[str, float]
+    preferred_factor: dict[str, float]
+    hhd_factor: dict[str, float]
+    state_factor: dict[str, float]
+
+    def premium(self, key, state: str) -> float:
+        base = self.base_by_issue_age.get(key.issue_age)
+        if base is None:  # nearest issue-age band
+            ages = sorted(self.base_by_issue_age)
+            base = self.base_by_issue_age[min(ages, key=lambda a: abs(a - key.issue_age))]
+        sf = self.state_factor.get(state, self.state_factor.get("All", 1.0))
+        return (
+            base
+            * self.gender_factor.get(key.gender, 1.0)
+            * self.plan_factor.get(key.plan, 1.0)
+            * self.uw_factor.get(key.uw_class, 1.0)
+            * self.preferred_factor.get(key.preferred, 1.0)
+            * self.hhd_factor.get(key.hhd, 1.0)
+            * sf
+        )
+
+
+@dataclass
 class DistributionAssumptions:
-    gender: dict[str, float]                 # M/F -> weight
-    preferred: dict[str, float]              # Y/N -> weight
-    hhd: dict[str, float]                    # Y/N -> weight
+    """Distribution as independent per-dimension weight factors. Each dimension's
+    weights sum to 1; a cell's weight is the product across dimensions."""
+    by_issue_age: dict[int, float]
+    gender: dict[str, float]
+    plan: dict[str, float]
+    uw: dict[str, float]
+    preferred: dict[str, float]
+    hhd: dict[str, float]
+
+    def weight(self, key) -> float:
+        return (
+            self.by_issue_age.get(key.issue_age, 0.0)
+            * self.gender.get(key.gender, 0.0)
+            * self.plan.get(key.plan, 0.0)
+            * self.uw.get(key.uw_class, 0.0)
+            * self.preferred.get(key.preferred, 0.0)
+            * self.hhd.get(key.hhd, 0.0)
+        )
 
 
 @dataclass
@@ -121,6 +169,7 @@ class OtherAssumptions:
 @dataclass
 class AssumptionSet:
     morbidity: MorbidityAssumptions
+    premium: PremiumAssumptions
     rerates: RerateAssumptions
     distribution: DistributionAssumptions
     termination: TerminationAssumptions

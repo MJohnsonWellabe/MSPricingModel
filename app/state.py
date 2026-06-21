@@ -9,19 +9,22 @@ import copy
 
 import streamlit as st
 
-from medigap_engine.io.defaults import default_assumptions, default_cells
+from medigap_engine.io.defaults import build_cells, default_assumptions
 from medigap_engine.io.serialize import assumptions_from_dict, assumptions_to_dict
 
 
 def init_state() -> None:
     if "assumptions" not in st.session_state:
         st.session_state.assumptions = copy.deepcopy(default_assumptions())
-    if "cells" not in st.session_state:
-        st.session_state.cells = list(default_cells())
     if "run_result" not in st.session_state:
         st.session_state.run_result = None
     if "diagnostics" not in st.session_state:
         st.session_state.diagnostics = None
+
+
+def get_cells():
+    """Cells are derived from the current assumptions' distribution factors."""
+    return list(build_cells(st.session_state.assumptions))
 
 
 def get_assumptions():

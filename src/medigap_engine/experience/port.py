@@ -1,38 +1,80 @@
-"""Apply experience-study results into the assumption / cell model ('Adopt').
+"""Apply experience-study results into the assumption model ('Adopt').
 
-Sales results replace per-cell distribution weights and premiums. Claims results
-recalibrate the *level* of the base claim-cost tables per plan and the state
-morbidity factors. Selection and claim-cost aging are surfaced in the UI for the
-user to judge rather than auto-applied (best-estimate aging already lives in the
-attained-age base-cost curve, distinct from the pricing antiselection load).
+Sales results update the distribution weight factors and the premium factor model
+(base by issue age + multiplicative factors). Claims results recalibrate the
+*level* of the base claim-cost tables per plan and the state morbidity factors.
+Selection and claim-cost aging are surfaced in the UI for the user to judge rather
+than auto-applied (best-estimate aging already lives in the attained-age base-cost
+curve, distinct from the pricing antiselection load).
 """
 from __future__ import annotations
 
 import copy
+import math
+from collections import defaultdict
 
 from ..models.assumptions import AssumptionSet
-from ..models.cell import CellKey, PricingCell
 from ..engine import lookups as L
 
+# index of each dimension within the cell-key tuple used by aggregate_sales
+_DIM_INDEX = {"issue_age": 0, "gender": 1, "plan": 2, "uw": 3, "preferred": 4, "hhd": 5}
 
-def apply_sales(cells: list[PricingCell], sales: dict) -> list[PricingCell]:
-    """Return a new cell list with weights, base premium, and per-state premiums
-    taken from the sales aggregation. Cells absent from the sales data get weight
-    0; cells present in sales but not in the prior list are added."""
-    existing = {(_k(c.key)): c for c in cells}
-    keys = set(existing) | set(sales["weights"])
-    out: list[PricingCell] = []
-    for k in sorted(keys):
-        weight = sales["weights"].get(k, 0.0)
-        avg_prem = sales["avg_premium"].get(k)
-        state_prem = sales["state_premiums"].get(k, {})
-        prev = existing.get(k)
-        base_prem = avg_prem if avg_prem else (prev.base_prem if prev else 0.0)
-        key = CellKey(issue_age=k[0], gender=k[1], plan=k[2], uw_class=k[3],
-                      preferred=k[4], hhd=k[5])
-        out.append(PricingCell(key=key, base_prem=base_prem, weight=weight,
-                               state_premiums=dict(state_prem)))
-    return out
+
+def apply_sales(asm: AssumptionSet, sales: dict) -> AssumptionSet:
+    """Return a copy of ``asm`` with distribution weight factors and the premium
+    factor model recalibrated from the sales aggregation."""
+    new = copy.deepcopy(asm)
+    counts = sales["counts"]            # cell-key tuple -> total applications
+    avg_premium = sales["avg_premium"]  # cell-key tuple -> average premium
+    state_prem = sales["state_premiums"]
+
+    # ---- distribution: per-dimension marginal weights from counts ----
+    total = sum(counts.values()) or 1.0
+    for dim, idx in _DIM_INDEX.items():
+        marg = defaultdict(float)
+        for k, c in counts.items():
+            marg[k[idx]] += c
+        if not marg:
+            continue
+        weights = {v: round(c / total, 8) for v, c in marg.items()}
+        target = {"issue_age": "by_issue_age", "uw": "uw"}.get(dim, dim)
+        setattr(new.distribution, target, weights)
+
+    # ---- premium: log main-effects decomposition weighted by count ----
+    obs = [(k, math.log(p), counts.get(k, 0.0))
+           for k, p in avg_premium.items() if p > 0 and counts.get(k, 0.0) > 0]
+    if obs:
+        wtot = sum(w for _, _, w in obs) or 1.0
+        mu = sum(lp * w for _, lp, w in obs) / wtot
+
+        def eff(idx):
+            g = defaultdict(lambda: [0.0, 0.0])
+            for k, lp, w in obs:
+                g[k[idx]][0] += lp * w
+                g[k[idx]][1] += w
+            return {v: (s / w - mu) for v, (s, w) in g.items() if w}
+
+        p = new.premium
+        p.base_by_issue_age = {int(a): round(math.exp(mu + e), 4)
+                               for a, e in eff(0).items()}
+        p.gender_factor = {v: round(math.exp(e), 6) for v, e in eff(1).items()}
+        p.plan_factor = {v: round(math.exp(e), 6) for v, e in eff(2).items()}
+        p.uw_factor = {v: round(math.exp(e), 6) for v, e in eff(3).items()}
+        p.preferred_factor = {v: round(math.exp(e), 6) for v, e in eff(4).items()}
+        p.hhd_factor = {v: round(math.exp(e), 6) for v, e in eff(5).items()}
+
+        # state premium factors: geomean of (state premium / cell average premium)
+        st_logs = defaultdict(list)
+        for k, by_state in state_prem.items():
+            comp = avg_premium.get(k, 0.0)
+            for s, sp in by_state.items():
+                if comp > 0 and sp > 0:
+                    st_logs[s].append(math.log(sp / comp))
+        if st_logs:
+            sf = {s: round(math.exp(sum(v) / len(v)), 6) for s, v in st_logs.items()}
+            sf.setdefault("All", 1.0)
+            p.state_factor = sf
+    return new
 
 
 def apply_claims(asm: AssumptionSet, claims: dict) -> AssumptionSet:
@@ -62,7 +104,3 @@ def apply_claims(asm: AssumptionSet, claims: dict) -> AssumptionSet:
         if f > 0:
             morb.state_factors[state] = f
     return new
-
-
-def _k(key: CellKey) -> tuple:
-    return (key.issue_age, key.gender, key.plan, key.uw_class, key.preferred, key.hhd)

@@ -172,6 +172,7 @@ def solve_rerates(
         info["x"] = x
 
     # hard-enforce the in-year LR floor on the chosen vector
+    pre_clamp = list(vec)
     vec = clamp_to_inyear_floor(project_state, asm, vec)
 
     # diagnostic: any residual floor breach (LR below floor even at trend-only)
@@ -180,4 +181,11 @@ def solve_rerates(
     breaches = [i + 1 for i, lr in enumerate(result.series["in_year_lr"]) if 0 < lr < floor - 1e-6]
     info["in_year_lr_floor_breaches"] = breaches
     info["achieved_lifetime_lr"] = result.lifetime_lr
+
+    # if the floor clamp pulled rerates back and we can no longer hit the target,
+    # report that the in-year floor is the binding constraint
+    if (info["status"] == "converged"
+            and vec != pre_clamp
+            and abs(result.lifetime_lr - target) > 2 * tol):
+        info["status"] = "in_year_floor_bound"
     return vec, info

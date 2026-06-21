@@ -69,3 +69,17 @@ def render() -> None:
         "In-year LR": series["in_year_lr"],
         "Lifetime LR": series["lifetime_lr"],
     }))
+
+    st.divider()
+    st.subheader("Trend & rerates by year")
+    from app.state import get_assumptions
+    asm = get_assumptions()
+    trend = asm.morbidity.trend_by_year
+    rerate = series.get("rerate_used", [0.0] * PROJECTION_YEARS)
+    tr = pd.DataFrame({
+        "Duration": list(range(1, PROJECTION_YEARS + 1)),
+        "Trend": [trend[min(i, len(trend) - 1)] for i in range(PROJECTION_YEARS)],
+        "Rerate used": rerate,
+    })
+    st.dataframe(tr, hide_index=True, use_container_width=True, height=320)
+    st.line_chart(tr.set_index("Duration")[["Trend", "Rerate used"]])

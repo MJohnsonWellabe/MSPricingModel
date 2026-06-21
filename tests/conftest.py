@@ -27,4 +27,4 @@ def base_sens():
 def sample_cell():
     key = CellKey(issue_age=65, gender="M", plan="G", uw_class="UW",
                   preferred="Y", hhd="Y")
-    return PricingCell(key=key, base_prem=1800.0, weight=1.0, state_premiums={})
+    return PricingCell(key=key, weight=1.0)

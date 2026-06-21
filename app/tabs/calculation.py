@@ -4,10 +4,12 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from app.state import get_assumptions
-from medigap_engine.engine.run import run
+from app.state import get_assumptions, get_cells
+from medigap_engine.engine.aggregate import aggregate_states
+from medigap_engine.engine.run import normalize_weights, run_state
 from medigap_engine.models.assumptions import PROJECTION_YEARS
 from medigap_engine.models.config import RunConfig
+from medigap_engine.models.results import RunResult
 from medigap_engine.models.sensitivities import SensitivitySet
 
 
@@ -23,11 +25,21 @@ def render() -> None:
     if st.button("Compute now", type="primary") or st.session_state.get("run_requested"):
         st.session_state.run_requested = False
         asm = get_assumptions()
-        cells = st.session_state.cells
-        with st.status("Running projection…", expanded=False) as status:
-            result, diag = run(cells, asm, config)
-            status.update(label="Done", state="complete")
-        st.session_state.run_result = result
+        cells = normalize_weights(get_cells())
+        states = config.states
+        progress = st.progress(0.0, text="Starting…")
+        by_state = {}
+        diag = {}
+        for i, state in enumerate(states):
+            progress.progress(i / len(states), text=f"Pricing {state} ({i + 1}/{len(states)})…")
+            st_res, info = run_state(state, cells, asm, config)
+            by_state[state] = st_res
+            diag[state] = info
+        progress.progress(1.0, text="Aggregating…")
+        combined = (aggregate_states(by_state, asm) if len(by_state) > 1
+                    else next(iter(by_state.values()), None))
+        progress.empty()
+        st.session_state.run_result = RunResult(by_state=by_state, all_states=combined)
         st.session_state.diagnostics = diag
         st.success("Run complete — see the Output tab for results.")
 

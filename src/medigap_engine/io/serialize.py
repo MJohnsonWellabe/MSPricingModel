@@ -10,6 +10,7 @@ from ..models.assumptions import (
     DistributionAssumptions,
     MorbidityAssumptions,
     OtherAssumptions,
+    PremiumAssumptions,
     RerateAssumptions,
     TerminationAssumptions,
 )
@@ -47,11 +48,24 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
         antiselection_lambda_lapse=float(
             r.get("antiselection_lambda_lapse", r.get("antiselection_lambda", 0.5))),
     )
+    p = d["premium"]
+    premium = PremiumAssumptions(
+        base_by_issue_age={int(k): float(v) for k, v in p["base_by_issue_age"].items()},
+        gender_factor={k: float(v) for k, v in p["gender_factor"].items()},
+        plan_factor={k: float(v) for k, v in p["plan_factor"].items()},
+        uw_factor={k: float(v) for k, v in p["uw_factor"].items()},
+        preferred_factor={k: float(v) for k, v in p["preferred_factor"].items()},
+        hhd_factor={k: float(v) for k, v in p["hhd_factor"].items()},
+        state_factor={k: float(v) for k, v in p["state_factor"].items()},
+    )
     dist = d["distribution"]
     distribution = DistributionAssumptions(
-        gender=dict(dist["gender"]),
-        preferred=dict(dist["preferred"]),
-        hhd=dict(dist["hhd"]),
+        by_issue_age={int(k): float(v) for k, v in dist["by_issue_age"].items()},
+        gender={k: float(v) for k, v in dist["gender"].items()},
+        plan={k: float(v) for k, v in dist["plan"].items()},
+        uw={k: float(v) for k, v in dist["uw"].items()},
+        preferred={k: float(v) for k, v in dist["preferred"].items()},
+        hhd={k: float(v) for k, v in dist["hhd"].items()},
     )
     t = d["termination"]
     termination = TerminationAssumptions(
@@ -74,15 +88,16 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
     o = d["other"]
     other = OtherAssumptions(**{k: float(v) for k, v in o.items()})
     return AssumptionSet(
-        morbidity=morbidity, rerates=rerates, distribution=distribution,
+        morbidity=morbidity, premium=premium, rerates=rerates, distribution=distribution,
         termination=termination, commission=commission, other=other,
         schema_version=str(d.get("schema_version", "1")),
     )
 
 
 def assumptions_to_dict(a: AssumptionSet) -> dict:
-    m, r, dist, t, c, o = (
-        a.morbidity, a.rerates, a.distribution, a.termination, a.commission, a.other,
+    m, p, r, dist, t, c, o = (
+        a.morbidity, a.premium, a.rerates, a.distribution, a.termination,
+        a.commission, a.other,
     )
     return {
         "schema_version": a.schema_version,
@@ -95,6 +110,12 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
             "trend_by_year": m.trend_by_year,
             "trend_first_year_exponent": m.trend_first_year_exponent,
         },
+        "premium": {
+            "base_by_issue_age": p.base_by_issue_age,
+            "gender_factor": p.gender_factor, "plan_factor": p.plan_factor,
+            "uw_factor": p.uw_factor, "preferred_factor": p.preferred_factor,
+            "hhd_factor": p.hhd_factor, "state_factor": p.state_factor,
+        },
         "rerates": {
             "solve": r.solve, "specified_rerates": r.specified_rerates,
             "aging_rerate_by_age_ages": r.aging_rerate_by_age_ages,
@@ -105,7 +126,10 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
             "antiselection_lambda_claims": r.antiselection_lambda_claims,
             "antiselection_lambda_lapse": r.antiselection_lambda_lapse,
         },
-        "distribution": {"gender": dist.gender, "preferred": dist.preferred, "hhd": dist.hhd},
+        "distribution": {
+            "by_issue_age": dist.by_issue_age, "gender": dist.gender, "plan": dist.plan,
+            "uw": dist.uw, "preferred": dist.preferred, "hhd": dist.hhd,
+        },
         "termination": {
             "base_lapse": t.base_lapse, "state_factors": t.state_factors,
             "mort_age": t.mort_age, "mort_qx": t.mort_qx,

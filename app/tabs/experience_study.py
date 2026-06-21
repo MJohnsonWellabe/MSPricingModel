@@ -74,8 +74,9 @@ def _sales_section() -> None:
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True, height=320)
 
     if st.button("Adopt distribution & premiums", type="primary"):
-        st.session_state.cells = apply_sales(st.session_state.cells, agg)
-        st.success("Adopted into the model's cell universe.")
+        from app.state import set_assumptions
+        set_assumptions(apply_sales(get_assumptions(), agg))
+        st.success("Adopted into the distribution and premium factor tables.")
 
 
 def _claims_section() -> None:

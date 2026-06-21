@@ -78,9 +78,16 @@ view.
 - **AE analysis** compares actual claims to expected (best-estimate assumptions,
   excluding the pricing antiselection load) at selectable granularity.
 
+### Premium & distribution (factor models)
+- **Premium** = `base_by_issue_age × gender × plan × uw × preferred × hhd × state`
+  (multiplicative factors, all editable on the Premium tab).
+- **Distribution** = independent per-dimension weight factors (issue age, gender,
+  plan, uw, preferred, hhd) that each sum to 1; a cell's weight is their product,
+  re-normalised at run time.
+
 ### Notes / deliberate choices
-- Every input is an assumption — distribution weights, premiums, the two
-  antiselection λ (claims & lapse), and the first-year trend exponent are all
+- Every input is an assumption — premium factors, distribution weight factors, the
+  two antiselection λ (claims & lapse), and the first-year trend exponent are all
   editable; nothing pricing-relevant is hard-coded.
 - Selection factors are carried forward past the source table's 5 durations.
 - Acquisition costs are treated as one-time at issue; maintenance recurs.

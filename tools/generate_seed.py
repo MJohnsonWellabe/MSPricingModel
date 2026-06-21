@@ -98,15 +98,12 @@ def build_assumptions(A) -> dict:
             "aging_rerate_by_age_ages": [int(c("AI", r)) for r in range(3, 39)],
             "aging_rerate_by_age_factor": [_rnd(c("AJ", r), 6) for r in range(3, 39)],
             "target_lifetime_lr": 0.78, "target_irr": 0.15,
-            "max_rerate": 0.15, "in_year_lr_floor": 0.65,
-            "consecutive_z": 0.10, "consecutive_b": 2,
+            "max_rerate": 0.20, "in_year_lr_floor": 0.65,
+            "consecutive_z": 0.15, "consecutive_b": 3,
             "antiselection_lambda_claims": 0.5, "antiselection_lambda_lapse": 0.5,
         },
-        "distribution": {
-            "gender": {"M": 0.43, "F": 0.57},
-            "preferred": {"Y": 0.9, "N": 0.1},
-            "hhd": {"Y": 0.6, "N": 0.4},
-        },
+        # "premium" and "distribution" are factor models derived from the cell
+        # universe; see build_factor_blocks() and main().
         "termination": {
             "base_lapse": {
                 "OE": [_rnd(c("BM", r)) for r in range(3, 33)],
@@ -155,16 +152,88 @@ def build_cells(ws) -> list:
     return cells
 
 
+def build_factor_blocks(cells: list) -> tuple[dict, dict]:
+    """Derive the premium factor model and distribution weight factors from the
+    per-cell universe via an additive log main-effects decomposition.
+
+    premium(cell, state) = base_by_issue_age[age] x gender x plan x uw x pref x hhd x state
+    weight(cell)         = product of per-dimension marginal weights
+    """
+    import math
+    from collections import defaultdict
+
+    dims = {"issue_age": "issue_age", "gender": "gender", "plan": "plan",
+            "uw": "uw", "preferred": "preferred", "hhd": "hhd"}
+    logs = [math.log(c["premium"]) for c in cells if c["premium"] > 0]
+    mu = sum(logs) / len(logs)
+
+    def eff(field):
+        g = defaultdict(list)
+        for c in cells:
+            if c["premium"] > 0:
+                g[c[field]].append(math.log(c["premium"]))
+        return {k: sum(v) / len(v) - mu for k, v in g.items()}
+
+    base_by_issue_age = {int(a): round(math.exp(mu + e), 4)
+                         for a, e in sorted(eff("issue_age").items())}
+
+    def factor(field):
+        return {k: round(math.exp(e), 6) for k, e in eff(field).items()}
+
+    state_logs = defaultdict(list)
+    for c in cells:
+        comp = c["premium"]
+        for s, p in c.get("state_premiums", {}).items():
+            if comp > 0 and p > 0:
+                state_logs[s].append(math.log(p / comp))
+    state_factor = {s: round(math.exp(sum(v) / len(v)), 6) for s, v in state_logs.items()}
+    state_factor.setdefault("All", 1.0)
+
+    premium = {
+        "base_by_issue_age": base_by_issue_age,
+        "gender_factor": factor("gender"), "plan_factor": factor("plan"),
+        "uw_factor": factor("uw"), "preferred_factor": factor("preferred"),
+        "hhd_factor": factor("hhd"), "state_factor": state_factor,
+    }
+
+    def marginal(field):
+        g = defaultdict(float)
+        tot = sum(c["weight"] for c in cells) or 1.0
+        for c in cells:
+            g[c[field]] += c["weight"]
+        return {k: round(v / tot, 8) for k, v in g.items()}
+
+    distribution = {
+        "by_issue_age": {int(k): v for k, v in marginal("issue_age").items()},
+        "gender": marginal("gender"), "plan": marginal("plan"), "uw": marginal("uw"),
+        "preferred": marginal("preferred"), "hhd": marginal("hhd"),
+    }
+    return premium, distribution
+
+
 def main(path: str) -> None:
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
     assumptions = build_assumptions(wb["Assumptions"])
     cells = build_cells(wb["Input"])
     wb.close()
+
+    premium, distribution = build_factor_blocks(cells)
+    assumptions["premium"] = premium
+    assumptions["distribution"] = distribution
+    # order keys for readability
+    ordered = {}
+    for k in ("schema_version", "morbidity", "premium", "rerates", "distribution",
+              "termination", "commission", "other"):
+        if k in assumptions:
+            ordered[k] = assumptions[k]
+    for k in assumptions:
+        ordered.setdefault(k, assumptions[k])
+
     with open(os.path.join(DATA, "default_assumptions.json"), "w") as fh:
-        json.dump(assumptions, fh, indent=1)
+        json.dump(ordered, fh, indent=1)
     with open(os.path.join(DATA, "default_cells.json"), "w") as fh:
         json.dump(cells, fh, indent=0)
-    print(f"Wrote {len(cells)} cells and assumptions to {DATA}")
+    print(f"Wrote {len(cells)} cells and factor-based assumptions to {DATA}")
 
 
 if __name__ == "__main__":

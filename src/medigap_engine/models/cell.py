@@ -22,13 +22,7 @@ class CellKey:
 
 @dataclass(frozen=True)
 class PricingCell:
+    """A pricing cell. Premium is no longer stored here — it is derived from the
+    premium factor model (``AssumptionSet.premium``) per cell and state."""
     key: CellKey
-    base_prem: float
     weight: float = 1.0
-    # optional per-state premium overrides (state -> annual premium)
-    state_premiums: dict = None
-
-    def premium_for(self, state: str) -> float:
-        if self.state_premiums and state in self.state_premiums:
-            return self.state_premiums[state]
-        return self.base_prem

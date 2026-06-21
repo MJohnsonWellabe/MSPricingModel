@@ -18,6 +18,10 @@ def test_round_trip_equains():
     assert b.rerates.antiselection_lambda_lapse == a.rerates.antiselection_lambda_lapse
     assert b.morbidity.trend_first_year_exponent == a.morbidity.trend_first_year_exponent
     assert len(b.morbidity.selection_factors) == len(a.morbidity.selection_factors)
+    assert b.premium.base_by_issue_age == a.premium.base_by_issue_age
+    assert b.premium.plan_factor == a.premium.plan_factor
+    assert b.distribution.gender == a.distribution.gender
+    assert b.distribution.by_issue_age == a.distribution.by_issue_age
 
 
 def test_default_assumptions_load_sane():
@@ -25,6 +29,13 @@ def test_default_assumptions_load_sane():
     assert a.morbidity.plans == ["F", "G", "N"]
     assert len(a.morbidity.trend_by_year) >= 30
     assert 0 < a.other.tax_rate < 1
+    # distribution weight factors each sum to 1
+    for dim in (a.distribution.by_issue_age, a.distribution.gender, a.distribution.plan,
+                a.distribution.uw, a.distribution.preferred, a.distribution.hhd):
+        assert abs(sum(dim.values()) - 1.0) < 1e-4
+    assert a.rerates.max_rerate == 0.20
+    assert a.rerates.consecutive_z == 0.15
+    assert a.rerates.consecutive_b == 3
     assert a.rerates.antiselection_lambda_claims == 0.5
     assert a.rerates.antiselection_lambda_lapse == 0.5
     assert a.morbidity.trend_first_year_exponent == 1.75
