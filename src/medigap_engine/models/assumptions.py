@@ -20,8 +20,8 @@ PROJECTION_YEARS = 30
 class MorbidityAssumptions:
     ages: list[int]                          # attained-age axis for base claim costs
     plans: list[str]
-    base_cc: dict[str, list[float]]          # plan -> base claim cost by age (reference gender)
-    gender_cc_factor: dict[str, float]       # M/F -> claim cost factor on the base table
+    base_cc: dict[str, list[float]]          # plan -> base (gender-blend) claim cost by age
+    gender_cc_rel: dict[str, float]          # M/F relativity (normalised by gender mix at use)
     state_factors: dict[str, float]          # state -> claim cost factor
     selection_factors: list[dict]            # rows of {duration, issue_age, uw, factor}
     cc_aging_by_duration: list[float]        # antiselection (col P) aging factor by duration
@@ -31,14 +31,35 @@ class MorbidityAssumptions:
     trend_first_year_exponent: float = 1.75  # power applied to (1+trend) in duration 1
 
 
+def normalized_factors(rel: dict, weights: dict) -> dict:
+    """Normalise relativities so the mix-weighted mean factor is 1:
+    ``f_v = rel_v / Σ_v weights_v * rel_v``. Levels missing from ``weights`` get
+    equal weight. Keeps the blended base table unchanged on average."""
+    denom = 0.0
+    total_w = 0.0
+    for v, r in rel.items():
+        w = weights.get(v)
+        if w is None:
+            w = None  # resolve after we know how many are missing
+        else:
+            total_w += w
+    # equal weight for any levels absent from `weights`
+    missing = [v for v in rel if weights.get(v) is None]
+    eq = (1.0 - total_w) / len(missing) if missing else 0.0
+    for v, r in rel.items():
+        w = weights.get(v, eq)
+        denom += w * r
+    if denom == 0:
+        return {v: 1.0 for v in rel}
+    return {v: r / denom for v, r in rel.items()}
+
+
 def derive_two_level(weight_yes: float, diff: float) -> dict[str, float]:
     """Back out Y/N factors from a differential, normalised so the
     distribution-weighted mean is 1 (the base table already carries the blend):
     f_N = (1+diff) * f_Y, and w_Y*f_Y + w_N*f_N = 1."""
     w_y = max(0.0, min(1.0, weight_yes))
-    w_n = 1.0 - w_y
-    f_y = 1.0 / (w_y + w_n * (1.0 + diff)) if (w_y + w_n * (1.0 + diff)) else 1.0
-    return {"Y": f_y, "N": f_y * (1.0 + diff)}
+    return normalized_factors({"Y": 1.0, "N": 1.0 + diff}, {"Y": w_y, "N": 1.0 - w_y})
 
 
 @dataclass
@@ -59,35 +80,33 @@ class RerateAssumptions:
 
 @dataclass
 class PremiumAssumptions:
-    """Premium as a multiplicative factor model:
+    """Premium as base × relativity factors:
 
-        premium(cell, state) = base_by_issue_age[age]
-            * gender_factor[g] * plan_factor[plan] * uw_factor[uw]
-            * preferred_factor[pref] * hhd_factor[hhd] * state_factor[state]
+        premium(cell, state) = base_by_issue_age[age] (blend at plan G)
+            * plan_rel[plan]                         (G anchored at 1.0, not normalised)
+            * normalized(gender_rel, gender mix)
+            * normalized(preferred_rel, preferred mix)
+            * normalized(hhd_rel, hhd mix)
+            * normalized(uw_rel, uw mix)
+            * state_factor[state]                    (raw)
+
+    The premium() helper here is base × plan × raw-relativities (no mix
+    normalisation); use ``lookups.premium_for_cell`` for the mix-normalised value.
     """
     base_by_issue_age: dict[int, float]
-    gender_factor: dict[str, float]
-    plan_factor: dict[str, float]
-    uw_factor: dict[str, float]
-    preferred_factor: dict[str, float]
-    hhd_factor: dict[str, float]
+    plan_rel: dict[str, float]
+    gender_rel: dict[str, float]
+    uw_rel: dict[str, float]
+    preferred_rel: dict[str, float]
+    hhd_rel: dict[str, float]
     state_factor: dict[str, float]
 
-    def premium(self, key, state: str) -> float:
-        base = self.base_by_issue_age.get(key.issue_age)
+    def base_for_age(self, issue_age: int) -> float:
+        base = self.base_by_issue_age.get(issue_age)
         if base is None:  # nearest issue-age band
             ages = sorted(self.base_by_issue_age)
-            base = self.base_by_issue_age[min(ages, key=lambda a: abs(a - key.issue_age))]
-        sf = self.state_factor.get(state, self.state_factor.get("All", 1.0))
-        return (
-            base
-            * self.gender_factor.get(key.gender, 1.0)
-            * self.plan_factor.get(key.plan, 1.0)
-            * self.uw_factor.get(key.uw_class, 1.0)
-            * self.preferred_factor.get(key.preferred, 1.0)
-            * self.hhd_factor.get(key.hhd, 1.0)
-            * sf
-        )
+            base = self.base_by_issue_age[min(ages, key=lambda a: abs(a - issue_age))]
+        return base
 
 
 @dataclass
@@ -114,8 +133,8 @@ class DistributionAssumptions:
 
 @dataclass
 class TerminationAssumptions:
-    base_lapse: list[float]                   # OE/GI ("other") lapse rate by duration
-    uw_lapse_factor: list[float]              # UW lapse = base_lapse * this, by duration
+    base_lapse: list[float]                   # blended lapse rate by duration (uw mix)
+    uw_lapse_rel: list[float]                 # UW-vs-other lapse relativity by duration
     state_factors: dict[str, float]          # state -> lapse factor
     mort_age: list[int]
     mort_qx: list[float]

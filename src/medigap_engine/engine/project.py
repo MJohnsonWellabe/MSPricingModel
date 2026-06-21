@@ -33,7 +33,7 @@ def project_cell(
     rr = asm.rerates
     lam_claims = rr.antiselection_lambda_claims
     lam_lapse = rr.antiselection_lambda_lapse
-    base_prem = asm.premium.premium(key, state)
+    base_prem = L.premium_for_cell(asm, key, state)
     state_cc_factor = morb.state_factors.get(state, morb.state_factors.get("All", 1.0))
     lapse_state_factor = asm.termination.state_factors.get(state, 1.0)
 

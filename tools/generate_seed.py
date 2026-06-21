@@ -93,8 +93,9 @@ def build_assumptions(A) -> dict:
         "schema_version": "1",
         "morbidity": {
             "ages": ages, "plans": PLANS,
+            # base_cc is converted to the gender blend in main() using the gender mix
             "base_cc": cc_female,
-            "gender_cc_factor": {"M": gender_ratio, "F": 1.0},
+            "gender_cc_rel": {"M": gender_ratio, "F": 1.0},
             "state_factors": state_factors,
             "selection_factors": selection,
             "cc_aging_by_duration": [_rnd(c("AL", r), 6) or 0.0 for r in range(3, 33)],
@@ -116,8 +117,9 @@ def build_assumptions(A) -> dict:
         # "premium" and "distribution" are factor models derived from the cell
         # universe; see build_factor_blocks() and main().
         "termination": {
+            # base_lapse is converted to the uw-mix blend in main()
             "base_lapse": oe_lapse,
-            "uw_lapse_factor": uw_factor,
+            "uw_lapse_rel": uw_factor,
             "state_factors": {k: 1.0 for k in state_factors},
             "mort_age": [int(c("BS", r)) for r in range(3, 104)],
             "mort_qx": [_rnd(c("BT", r), 8) for r in range(3, 104)],
@@ -182,10 +184,14 @@ def build_factor_blocks(cells: list) -> tuple[dict, dict]:
                 g[c[field]].append(math.log(c["premium"]))
         return {k: sum(v) / len(v) - mu for k, v in g.items()}
 
-    base_by_issue_age = {int(a): round(math.exp(mu + e), 4)
+    # plan anchored at G: base reflects the plan-G level; plan_rel relative to G
+    plan_eff = eff("plan")
+    plan_g = plan_eff.get("G", 0.0)
+    base_by_issue_age = {int(a): round(math.exp(mu + e + plan_g), 4)
                          for a, e in sorted(eff("issue_age").items())}
+    plan_rel = {k: round(math.exp(e - plan_g), 6) for k, e in plan_eff.items()}
 
-    def factor(field):
+    def rel(field):  # centred relativity (normalised against the mix at runtime)
         return {k: round(math.exp(e), 6) for k, e in eff(field).items()}
 
     state_logs = defaultdict(list)
@@ -199,9 +205,9 @@ def build_factor_blocks(cells: list) -> tuple[dict, dict]:
 
     premium = {
         "base_by_issue_age": base_by_issue_age,
-        "gender_factor": factor("gender"), "plan_factor": factor("plan"),
-        "uw_factor": factor("uw"), "preferred_factor": factor("preferred"),
-        "hhd_factor": factor("hhd"), "state_factor": state_factor,
+        "plan_rel": plan_rel, "gender_rel": rel("gender"),
+        "uw_rel": rel("uw"), "preferred_rel": rel("preferred"),
+        "hhd_rel": rel("hhd"), "state_factor": state_factor,
     }
 
     def marginal(field):
@@ -228,6 +234,19 @@ def main(path: str) -> None:
     premium, distribution = build_factor_blocks(cells)
     assumptions["premium"] = premium
     assumptions["distribution"] = distribution
+
+    # convert morbidity base_cc (female) -> gender blend, and termination base_lapse
+    # (OE) -> uw-mix blend, now that the distribution mix is known
+    m = assumptions["morbidity"]
+    gmix = distribution["gender"]
+    gblend = sum(gmix.get(g, 0.0) * m["gender_cc_rel"].get(g, 1.0) for g in m["gender_cc_rel"])
+    m["base_cc"] = {pl: [round(v * gblend, 4) for v in m["base_cc"][pl]] for pl in m["base_cc"]}
+    t = assumptions["termination"]
+    w_uw = distribution["uw"].get("UW", 0.0)
+    w_other = 1.0 - w_uw
+    t["base_lapse"] = [round(t["base_lapse"][i] * (w_uw * t["uw_lapse_rel"][i] + w_other), 6)
+                       for i in range(len(t["base_lapse"]))]
+
     # order keys for readability
     ordered = {}
     for k in ("schema_version", "morbidity", "premium", "rerates", "distribution",

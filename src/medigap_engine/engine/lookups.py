@@ -4,13 +4,13 @@ These translate the workbook's INDEX/MATCH/SUMIFS lookups into plain functions.
 """
 from __future__ import annotations
 
-from ..models.assumptions import AssumptionSet, derive_two_level
+from ..models.assumptions import AssumptionSet, derive_two_level, normalized_factors
 
 
 def base_claim_cost(asm: AssumptionSet, gender: str, attained_age: int, plan: str) -> float:
-    """Workbook M column: base claim cost by attained age and plan from the single
-    reference-gender table, scaled by the gender claim-cost factor. Ages outside the
-    table clamp to the nearest end; intermediate ages use the nearest age at or below."""
+    """Base (gender-blend) claim cost by attained age and plan, scaled by the
+    gender relativity normalised against the gender mix. Ages outside the table
+    clamp to the nearest end; intermediate ages use the nearest age at or below."""
     morb = asm.morbidity
     ages = morb.ages
     table = morb.base_cc[plan]
@@ -22,7 +22,23 @@ def base_claim_cost(asm: AssumptionSet, gender: str, attained_age: int, plan: st
         for i, ag in enumerate(ages):
             if ag <= a:
                 idx = i
-    return table[idx] * morb.gender_cc_factor.get(gender, 1.0)
+    gfac = normalized_factors(morb.gender_cc_rel, asm.distribution.gender)
+    return table[idx] * gfac.get(gender, 1.0)
+
+
+def premium_for_cell(asm: AssumptionSet, key, state: str) -> float:
+    """Premium = base(blend at plan G) × plan relativity (G-anchored) × mix-normalised
+    gender/preferred/hhd/uw relativities × raw state factor."""
+    p = asm.premium
+    dist = asm.distribution
+    base = p.base_for_age(key.issue_age)
+    plan_f = p.plan_rel.get(key.plan, 1.0)
+    g = normalized_factors(p.gender_rel, dist.gender).get(key.gender, 1.0)
+    pr = normalized_factors(p.preferred_rel, dist.preferred).get(key.preferred, 1.0)
+    h = normalized_factors(p.hhd_rel, dist.hhd).get(key.hhd, 1.0)
+    uw = normalized_factors(p.uw_rel, dist.uw).get(key.uw_class, 1.0)
+    sf = p.state_factor.get(state, p.state_factor.get("All", 1.0))
+    return base * plan_f * g * pr * h * uw * sf
 
 
 def claim_class_factors(asm: AssumptionSet, uw_class: str, preferred: str, hhd: str) -> float:
@@ -56,14 +72,15 @@ def selection_factor(asm: AssumptionSet, issue_age: int, uw_class: str, duration
 
 
 def lapse_rate(asm: AssumptionSet, uw_class: str, duration: int) -> float:
-    """Base (OE/GI) lapse by duration, scaled by the UW factor for UW business."""
+    """Blended base lapse by duration, scaled by the UW-vs-other relativity
+    normalised against the uw mix (so the blend is preserved)."""
     term = asm.termination
     d = min(duration, len(term.base_lapse)) - 1
     base = term.base_lapse[d]
-    if uw_class == "UW":
-        fi = min(duration, len(term.uw_lapse_factor)) - 1
-        return base * term.uw_lapse_factor[fi]
-    return base
+    fi = min(duration, len(term.uw_lapse_rel)) - 1
+    rel = term.uw_lapse_rel[fi]
+    fac = normalized_factors({"UW": rel, "OE": 1.0, "GI": 1.0}, asm.distribution.uw)
+    return base * fac.get(uw_class, 1.0)
 
 
 def trend_year(asm: AssumptionSet, duration: int) -> float:

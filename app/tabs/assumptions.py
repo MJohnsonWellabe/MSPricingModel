@@ -69,19 +69,21 @@ def render() -> None:
 
 
 def _morbidity(asm) -> None:
-    from medigap_engine.models.assumptions import derive_two_level
+    from medigap_engine.models.assumptions import derive_two_level, normalized_factors
 
     m = asm.morbidity
     st.subheader("Base claim costs by plan and attained age")
-    st.caption("One base table (reference gender); the gender factor scales it. "
-               "Claim cost(gender) = base × gender factor.")
+    st.caption("Base table is the gender blend; the gender relativity (normalised by the "
+               "gender mix) sends male up and female down while preserving the blend.")
     dfb = pd.DataFrame(m.base_cc, index=m.ages)
     edb = st.data_editor(dfb, use_container_width=True, height=300, key="cc_base")
     for p in m.plans:
         if p in edb:
             m.base_cc[p] = edb[p].tolist()
-    st.markdown("**Gender claim-cost factor**")
-    m.gender_cc_factor = _dict_editor(m.gender_cc_factor, "Factor", "cc_gender", fmt="%.4f")
+    st.markdown("**Gender claim-cost relativity** (e.g. M = 1.15 means male 15% above female)")
+    m.gender_cc_rel = _dict_editor(m.gender_cc_rel, "Relativity", "cc_gender", fmt="%.4f")
+    gf = normalized_factors(m.gender_cc_rel, asm.distribution.gender)
+    st.caption("→ derived factors: " + ", ".join(f"{k} = {v:.5f}" for k, v in gf.items()))
 
     st.subheader("Trend by duration year")
     m.trend_first_year_exponent = st.number_input(
@@ -113,8 +115,16 @@ def _morbidity(asm) -> None:
             step=0.01, format="%.3f")
         hf = derive_two_level(asm.distribution.hhd.get("Y", 0.5), m.hhd_diff)
         st.caption(f"→ derived factors: Y = {hf['Y']:.5f}, N = {hf['N']:.5f}")
-    st.caption("Selection (antiselection) factors and claim-cost aging are shown "
-               "read-only here; they will become editable in a later phase.")
+
+    st.subheader("Claim-cost aging by duration")
+    st.caption("Incremental aging added to the antiselection (column P) recurrence each "
+               "duration; varies by year.")
+    adf = pd.DataFrame({"Aging": m.cc_aging_by_duration},
+                       index=range(1, len(m.cc_aging_by_duration) + 1))
+    aed = st.data_editor(adf, use_container_width=True, height=300, key="cc_aging",
+                         column_config={"Aging": st.column_config.NumberColumn(format="%.4f")})
+    m.cc_aging_by_duration = aed["Aging"].tolist()
+    st.caption("Selection (antiselection) factors remain read-only here for now.")
 
 
 def _rerates(asm) -> None:
@@ -157,28 +167,39 @@ def _rerates(asm) -> None:
 
 
 def _premium(asm) -> None:
+    from medigap_engine.models.assumptions import normalized_factors
+
     p = asm.premium
-    st.subheader("Premium = base by issue age × factors")
-    st.caption("premium(cell, state) = base_by_issue_age × gender × plan × uw × "
-               "preferred × hhd × state.")
-    st.markdown("**Base premium by issue age**")
+    d = asm.distribution
+    st.subheader("Premium = base (blend at plan G) × relativities")
+    st.caption("Enter relativities (how much premium goes up/down). Gender/preferred/hhd/uw "
+               "are normalised by the business mix so the blend is preserved; PLAN is anchored "
+               "at G = 1.00 (F/N relative to G). State is a raw factor.")
+    st.markdown("**Base premium by issue age** (plan-G blend)")
     p.base_by_issue_age = _dict_editor(p.base_by_issue_age, "Base premium",
                                        "prem_base", fmt="%.2f")
+
+    def _rel_block(label, rel, weights, key, normalize=True):
+        st.markdown(f"**{label}**")
+        new = _dict_editor(rel, "Relativity", key)
+        if normalize:
+            fac = normalized_factors(new, weights)
+            st.caption("→ factors: " + ", ".join(f"{k} = {v:.4f}" for k, v in fac.items()))
+        else:
+            st.caption("→ factors = relativities (G anchored at 1.00)")
+        return new
+
     cols = st.columns(3)
     with cols[0]:
-        st.markdown("**Gender factor**")
-        p.gender_factor = _dict_editor(p.gender_factor, "Factor", "prem_gender")
-        st.markdown("**Preferred factor**")
-        p.preferred_factor = _dict_editor(p.preferred_factor, "Factor", "prem_pref")
+        p.plan_rel = _rel_block("Plan (G = 1.00)", p.plan_rel, d.plan, "prem_plan",
+                                normalize=False)
+        p.preferred_rel = _rel_block("Preferred", p.preferred_rel, d.preferred, "prem_pref")
     with cols[1]:
-        st.markdown("**Plan factor**")
-        p.plan_factor = _dict_editor(p.plan_factor, "Factor", "prem_plan")
-        st.markdown("**HHD factor**")
-        p.hhd_factor = _dict_editor(p.hhd_factor, "Factor", "prem_hhd")
+        p.gender_rel = _rel_block("Gender", p.gender_rel, d.gender, "prem_gender")
+        p.hhd_rel = _rel_block("HHD", p.hhd_rel, d.hhd, "prem_hhd")
     with cols[2]:
-        st.markdown("**UW factor**")
-        p.uw_factor = _dict_editor(p.uw_factor, "Factor", "prem_uw")
-    st.markdown("**State factor**")
+        p.uw_rel = _rel_block("UW", p.uw_rel, d.uw, "prem_uw")
+    st.markdown("**State factor** (raw)")
     p.state_factor = _dict_editor(p.state_factor, "Factor", "prem_state")
 
 
@@ -207,20 +228,26 @@ def _distribution(asm) -> None:
 
 
 def _termination(asm) -> None:
+    from medigap_engine.models.assumptions import normalized_factors
+
     t = asm.termination
-    st.subheader("Base lapse (OE/GI) and UW factor by duration")
-    st.caption("UW lapse = base lapse × UW factor. OE and GI use the base directly.")
+    st.subheader("Base lapse (blend) and UW relativity by duration")
+    st.caption("Base lapse is the uw-mix blend. UW relativity (e.g. 1.5 = UW 1.5× as likely to "
+               "lapse as other) is normalised by the uw mix, so the applied UW factor is below "
+               "the relativity (the blend already includes UW exposure).")
     ldf = pd.DataFrame(
-        {"Base lapse (OE/GI)": t.base_lapse, "UW factor": t.uw_lapse_factor},
+        {"Base lapse (blend)": t.base_lapse, "UW relativity": t.uw_lapse_rel},
         index=range(1, PROJECTION_YEARS + 1))
     led = st.data_editor(
         ldf, use_container_width=True, height=320, key="lapse",
         column_config={
-            "Base lapse (OE/GI)": st.column_config.NumberColumn(format="%.5f"),
-            "UW factor": st.column_config.NumberColumn(format="%.4f"),
+            "Base lapse (blend)": st.column_config.NumberColumn(format="%.5f"),
+            "UW relativity": st.column_config.NumberColumn(format="%.4f"),
         })
-    t.base_lapse = led["Base lapse (OE/GI)"].tolist()
-    t.uw_lapse_factor = led["UW factor"].tolist()
+    t.base_lapse = led["Base lapse (blend)"].tolist()
+    t.uw_lapse_rel = led["UW relativity"].tolist()
+    fac = normalized_factors({"UW": t.uw_lapse_rel[0], "OE": 1.0, "GI": 1.0}, asm.distribution.uw)
+    st.caption(f"→ duration-1 applied factors: UW = {fac['UW']:.4f}, other = {fac['OE']:.4f}")
 
     st.subheader("Termination duration scaling")
     c = st.columns(2)

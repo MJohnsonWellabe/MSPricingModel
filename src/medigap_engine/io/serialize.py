@@ -22,7 +22,7 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
         ages=list(m["ages"]),
         plans=list(m["plans"]),
         base_cc={k: list(v) for k, v in m["base_cc"].items()},
-        gender_cc_factor={k: float(v) for k, v in m["gender_cc_factor"].items()},
+        gender_cc_rel={k: float(v) for k, v in m["gender_cc_rel"].items()},
         state_factors=dict(m["state_factors"]),
         selection_factors=[dict(r) for r in m["selection_factors"]],
         cc_aging_by_duration=list(m["cc_aging_by_duration"]),
@@ -51,11 +51,11 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
     p = d["premium"]
     premium = PremiumAssumptions(
         base_by_issue_age={int(k): float(v) for k, v in p["base_by_issue_age"].items()},
-        gender_factor={k: float(v) for k, v in p["gender_factor"].items()},
-        plan_factor={k: float(v) for k, v in p["plan_factor"].items()},
-        uw_factor={k: float(v) for k, v in p["uw_factor"].items()},
-        preferred_factor={k: float(v) for k, v in p["preferred_factor"].items()},
-        hhd_factor={k: float(v) for k, v in p["hhd_factor"].items()},
+        plan_rel={k: float(v) for k, v in p["plan_rel"].items()},
+        gender_rel={k: float(v) for k, v in p["gender_rel"].items()},
+        uw_rel={k: float(v) for k, v in p["uw_rel"].items()},
+        preferred_rel={k: float(v) for k, v in p["preferred_rel"].items()},
+        hhd_rel={k: float(v) for k, v in p["hhd_rel"].items()},
         state_factor={k: float(v) for k, v in p["state_factor"].items()},
     )
     dist = d["distribution"]
@@ -70,7 +70,7 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
     t = d["termination"]
     termination = TerminationAssumptions(
         base_lapse=list(t["base_lapse"]),
-        uw_lapse_factor=list(t["uw_lapse_factor"]),
+        uw_lapse_rel=list(t["uw_lapse_rel"]),
         state_factors=dict(t["state_factors"]),
         mort_age=list(t["mort_age"]),
         mort_qx=list(t["mort_qx"]),
@@ -104,7 +104,7 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
         "schema_version": a.schema_version,
         "morbidity": {
             "ages": m.ages, "plans": m.plans,
-            "base_cc": m.base_cc, "gender_cc_factor": m.gender_cc_factor,
+            "base_cc": m.base_cc, "gender_cc_rel": m.gender_cc_rel,
             "state_factors": m.state_factors, "selection_factors": m.selection_factors,
             "cc_aging_by_duration": m.cc_aging_by_duration,
             "preferred_diff": m.preferred_diff, "hhd_diff": m.hhd_diff,
@@ -113,9 +113,9 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
         },
         "premium": {
             "base_by_issue_age": p.base_by_issue_age,
-            "gender_factor": p.gender_factor, "plan_factor": p.plan_factor,
-            "uw_factor": p.uw_factor, "preferred_factor": p.preferred_factor,
-            "hhd_factor": p.hhd_factor, "state_factor": p.state_factor,
+            "plan_rel": p.plan_rel, "gender_rel": p.gender_rel,
+            "uw_rel": p.uw_rel, "preferred_rel": p.preferred_rel,
+            "hhd_rel": p.hhd_rel, "state_factor": p.state_factor,
         },
         "rerates": {
             "solve": r.solve, "specified_rerates": r.specified_rerates,
@@ -132,7 +132,7 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
             "uw": dist.uw, "preferred": dist.preferred, "hhd": dist.hhd,
         },
         "termination": {
-            "base_lapse": t.base_lapse, "uw_lapse_factor": t.uw_lapse_factor,
+            "base_lapse": t.base_lapse, "uw_lapse_rel": t.uw_lapse_rel,
             "state_factors": t.state_factors,
             "mort_age": t.mort_age, "mort_qx": t.mort_qx,
             "dur2_scaling": t.dur2_scaling, "dur3plus_scaling": t.dur3plus_scaling,

@@ -55,13 +55,17 @@ def apply_sales(asm: AssumptionSet, sales: dict) -> AssumptionSet:
             return {v: (s / w - mu) for v, (s, w) in g.items() if w}
 
         p = new.premium
-        p.base_by_issue_age = {int(a): round(math.exp(mu + e), 4)
+        plan_eff = eff(2)
+        plan_g = plan_eff.get("G", 0.0)
+        # base = blend at plan G; plan relativities anchored at G = 1.0
+        p.base_by_issue_age = {int(a): round(math.exp(mu + e + plan_g), 4)
                                for a, e in eff(0).items()}
-        p.gender_factor = {v: round(math.exp(e), 6) for v, e in eff(1).items()}
-        p.plan_factor = {v: round(math.exp(e), 6) for v, e in eff(2).items()}
-        p.uw_factor = {v: round(math.exp(e), 6) for v, e in eff(3).items()}
-        p.preferred_factor = {v: round(math.exp(e), 6) for v, e in eff(4).items()}
-        p.hhd_factor = {v: round(math.exp(e), 6) for v, e in eff(5).items()}
+        p.plan_rel = {v: round(math.exp(e - plan_g), 6) for v, e in plan_eff.items()}
+        # other dims as centred relativities (normalised against the mix at use time)
+        p.gender_rel = {v: round(math.exp(e), 6) for v, e in eff(1).items()}
+        p.uw_rel = {v: round(math.exp(e), 6) for v, e in eff(3).items()}
+        p.preferred_rel = {v: round(math.exp(e), 6) for v, e in eff(4).items()}
+        p.hhd_rel = {v: round(math.exp(e), 6) for v, e in eff(5).items()}
 
         # state premium factors: geomean of (state premium / cell average premium)
         st_logs = defaultdict(list)

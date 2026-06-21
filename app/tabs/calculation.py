@@ -24,23 +24,34 @@ def render() -> None:
 
     if st.button("Compute now", type="primary") or st.session_state.get("run_requested"):
         st.session_state.run_requested = False
+        st.session_state.calc_job = {
+            "states": list(config.states), "i": 0, "by_state": {}, "diag": {},
+            "config": config,
+        }
+        st.session_state.run_result = None
+        st.rerun()
+
+    # Process one state per rerun so the progress bar repaints between states
+    # (a single synchronous loop never repaints under stlite).
+    job = st.session_state.get("calc_job")
+    if job:
+        states = job["states"]
+        total = len(states)
+        i = job["i"]
+        st.progress(i / total, text=f"Pricing {states[i]} ({i + 1}/{total})…")
         asm = get_assumptions()
         cells = normalize_weights(get_cells())
-        states = config.states
-        progress = st.progress(0.0, text="Starting…")
-        by_state = {}
-        diag = {}
-        for i, state in enumerate(states):
-            progress.progress(i / len(states), text=f"Pricing {state} ({i + 1}/{len(states)})…")
-            st_res, info = run_state(state, cells, asm, config)
-            by_state[state] = st_res
-            diag[state] = info
-        progress.progress(1.0, text="Aggregating…")
-        combined = (aggregate_states(by_state, asm) if len(by_state) > 1
-                    else next(iter(by_state.values()), None))
-        progress.empty()
-        st.session_state.run_result = RunResult(by_state=by_state, all_states=combined)
-        st.session_state.diagnostics = diag
+        st_res, info = run_state(states[i], cells, asm, job["config"])
+        job["by_state"][states[i]] = st_res
+        job["diag"][states[i]] = info
+        job["i"] = i + 1
+        if job["i"] < total:
+            st.rerun()
+        combined = (aggregate_states(job["by_state"], asm) if total > 1
+                    else next(iter(job["by_state"].values()), None))
+        st.session_state.run_result = RunResult(by_state=job["by_state"], all_states=combined)
+        st.session_state.diagnostics = job["diag"]
+        st.session_state.calc_job = None
         st.success("Run complete — see the Output tab for results.")
 
     diag = st.session_state.get("diagnostics")
@@ -51,10 +62,10 @@ def render() -> None:
             rows.append({
                 "State": state,
                 "Status": info.get("status"),
-                "Switchover x": round(info.get("x", 0), 2) if info.get("x") else None,
+                "Front-load yrs (K)": round(info.get("K", 0), 2) if info.get("K") else None,
                 "Achieved lifetime LR": round(info.get("achieved_lifetime_lr", 0), 4)
                 if "achieved_lifetime_lr" in info else None,
-                "LR-floor breaches (durations)": ", ".join(
+                "In-year LR below floor (durations)": ", ".join(
                     str(d) for d in info.get("in_year_lr_floor_breaches", [])) or "—",
             })
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)

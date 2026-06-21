@@ -149,10 +149,19 @@ def _ae_section() -> None:
             df[col] = df[col].round(0)
     if "ae" in df:
         df["ae"] = df["ae"].round(3)
-    styler = df
-    try:
-        styler = df.style.background_gradient(subset=["ae"], cmap="RdYlGn_r", vmin=0.5, vmax=1.5)
-    except Exception:  # noqa: BLE001
-        pass
+
+    def _ae_color(v):
+        # dependency-free colouring (no matplotlib): red = light assumptions, green = redundant
+        try:
+            if v >= 1.10:
+                return "background-color: #f8b4b4"
+            if v <= 0.90:
+                return "background-color: #b4f8b4"
+        except TypeError:
+            pass
+        return ""
+
+    styler = df.style.map(_ae_color, subset=["ae"]) if "ae" in df else df
     st.dataframe(styler, hide_index=True, use_container_width=True, height=420)
-    st.caption("A/E > 1 means actual claims exceeded expected (assumptions may be light).")
+    st.caption("A/E > 1 (red) means actual claims exceeded expected (assumptions may be light); "
+               "< 1 (green) means redundant.")

@@ -8,8 +8,8 @@ from ..models.cell import PricingCell
 from ..models.config import RunConfig
 from ..models.results import RunResult, StateResult
 from .aggregate import aggregate_cells, aggregate_states
+from .forward_solver import solve_rerates
 from .project import project_cell
-from .solver import clamp_to_inyear_floor, solve_rerates
 
 
 def normalize_weights(cells: list[PricingCell]) -> list[PricingCell]:
@@ -40,20 +40,17 @@ def run_state(
 
     solve = config.solve_rerates and asm.rerates.solve
     if solve:
-        rerates, info = solve_rerates(projector, asm)
+        rerates, info = solve_rerates(cells, asm, sens, state)
     else:
-        # specified rerates still respect the hard in-year LR floor
-        rerates = clamp_to_inyear_floor(projector, asm, list(asm.rerates.specified_rerates))
-        result = projector(rerates)
-        floor = asm.rerates.in_year_lr_floor
-        breaches = [i + 1 for i, lr in enumerate(result.series["in_year_lr"])
-                    if 0 < lr < floor - 1e-6]
-        info = {"status": "specified", "rerates": rerates,
-                "in_year_lr_floor_breaches": breaches,
-                "achieved_lifetime_lr": result.lifetime_lr}
-        return result, info
+        rerates = list(asm.rerates.specified_rerates)
+        info = {"status": "specified", "rerates": rerates}
 
-    return projector(rerates), info
+    result = projector(rerates)
+    floor = asm.rerates.in_year_lr_floor
+    info["in_year_lr_floor_breaches"] = [
+        i + 1 for i, lr in enumerate(result.series["in_year_lr"]) if 0 < lr < floor - 1e-6]
+    info.setdefault("achieved_lifetime_lr", result.lifetime_lr)
+    return result, info
 
 
 def run(

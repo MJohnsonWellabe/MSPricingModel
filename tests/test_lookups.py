@@ -33,11 +33,12 @@ def test_claim_class_factors_preferred_only_for_uw(asm):
     assert uw != oe
 
 
-def test_base_claim_cost_gender_factor(asm):
-    # male = base x gender factor; female = base (reference) when F factor is 1
+def test_base_claim_cost_gender_relativity(asm):
+    # male/female ratio equals the gender relativity ratio (normalisation cancels)
     m = L.base_claim_cost(asm, "M", 70, "G")
     f = L.base_claim_cost(asm, "F", 70, "G")
-    assert abs(m / f - asm.morbidity.gender_cc_factor["M"]) < 1e-9
+    rel = asm.morbidity.gender_cc_rel
+    assert abs(m / f - rel["M"] / rel["F"]) < 1e-9
 
 
 def test_derive_two_level_reproduces_workbook():
@@ -50,9 +51,10 @@ def test_derive_two_level_reproduces_workbook():
     assert abs(0.9 * f["Y"] + 0.1 * f["N"] - 1.0) < 1e-9
 
 
-def test_uw_lapse_factor_applied(asm):
-    base = L.lapse_rate(asm, "OE", 1)
+def test_uw_lapse_relativity_applied(asm):
+    # UW vs OE lapse ratio equals the entered relativity (normalisation cancels)
+    oe = L.lapse_rate(asm, "OE", 1)
     uw = L.lapse_rate(asm, "UW", 1)
-    assert abs(uw / base - asm.termination.uw_lapse_factor[0]) < 1e-9
-    # OE and GI both use the base (factor 1)
-    assert L.lapse_rate(asm, "GI", 1) == base
+    assert abs(uw / oe - asm.termination.uw_lapse_rel[0]) < 1e-9
+    # OE and GI are both "other" -> identical lapse
+    assert L.lapse_rate(asm, "GI", 1) == oe

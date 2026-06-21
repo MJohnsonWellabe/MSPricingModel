@@ -16,11 +16,14 @@ def test_apply_sales_updates_distribution_and_premium(asm):
     # distribution gender marginal reflects the 75/25 split
     assert abs(new.distribution.gender["M"] - 0.75) < 1e-6
     assert abs(new.distribution.gender["F"] - 0.25) < 1e-6
-    # premium for a male cell exceeds the female cell (male factor higher)
+    # plan relativity is anchored at G = 1.0
+    assert abs(new.premium.plan_rel["G"] - 1.0) < 1e-9
+    # premium for a male cell exceeds the female cell (male relativity higher)
+    from medigap_engine.engine import lookups as L
     from medigap_engine.models.cell import CellKey
     km = CellKey(65, "M", "G", "UW", "Y", "Y")
     kf = CellKey(65, "F", "G", "UW", "Y", "Y")
-    assert new.premium.premium(km, "All") > new.premium.premium(kf, "All")
+    assert L.premium_for_cell(new, km, "All") > L.premium_for_cell(new, kf, "All")
     # TX premium ~ 4% below the All/composite for both (2208/2300)
     assert new.premium.state_factor["TX"] < 1.0
 

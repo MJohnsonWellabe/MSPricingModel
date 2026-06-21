@@ -16,7 +16,8 @@ income statements.
 - `lives_d = lives_{d-1} × (1 − total_term_d)`, starting from 1 life at issue.
 - `total_term_d = 1 − (1 − lapse_d)(1 − mortality_d)`, with duration scaling
   (×1.05 in duration 2, ×1.10 in durations 3+, capped at 1).
-- Lapse is looked up by (duration, UW class); mortality by attained age.
+- Lapse = blended base lapse (uw mix) × UW-vs-other relativity normalised by the uw
+  mix (so the blend is preserved); mortality by attained age.
 - **Antiselective lapse:** lapse is multiplied by `1 + λ × (rerate_d − trend_d)`
   (× the antiselective-lapse sensitivity).
 
@@ -50,15 +51,20 @@ income statements.
 - Distributable cashflow `AH_d = RBC_{d-1} − RBC_d + int_on_RBC_d + tax_on_int_d
   + after_tax_income_d`; **IRR** is computed on this stream.
 
-### Rerate solver
-When solving, the model takes rerates (as large as the rules allow) until the
-projected **lifetime loss ratio** reaches the target (default **78%**), then
-trend-only rerates for the remainder. Rules: max single rerate; no more than *b*
-consecutive rerates above *z*; and a **hard in-year LR floor** (default **65%**)
-— rerates are scaled back wherever they would push a duration's in-year loss
-ratio below the floor (durations whose LR is structurally below the floor even
-with trend-only rerates are exempt and reported). The solver bisects a continuous
-switchover point because lifetime LR is monotone in it.
+### Rerate solver (front-load to floor, target lifetime LR)
+When solving, the model **front-loads** rerates: each early year it takes the
+largest rerate that does **not** push the in-year loss ratio below the floor
+(default **65%**), capped by the max single rerate and the consecutive-rerate
+rule (no more than *b* consecutive rerates above *z*). It front-loads enough years
+to bring the projected **lifetime loss ratio** to its target (default **78%**),
+then rides at trend; the number of front-loaded years is found by bisection (the
+lifetime LR is monotone in it). If the target can't be reached within the floor
+and rules, the solver does its best and reports the status. Late durations riding
+at trend can drift below the in-year floor as the premium aging-rerate outpaces
+age-capped claims — these are reported as diagnostics on the Calculation tab.
+Each state solves independently. Per the sensitivities, rerate effectiveness
+haircuts the achieved rerates after the solve (so a stressed run under-achieves
+the recommended rerates).
 
 ### Aggregation
 Dollar line items are summed across cells weighted by each cell's distribution
@@ -79,11 +85,15 @@ view.
   excluding the pricing antiselection load) at selectable granularity.
 
 ### Premium & distribution (factor models)
-- **Premium** = `base_by_issue_age × gender × plan × uw × preferred × hhd × state`
-  (multiplicative factors, all editable on the Premium tab).
-- **Distribution** = independent per-dimension weight factors (issue age, gender,
-  plan, uw, preferred, hhd) that each sum to 1; a cell's weight is their product,
-  re-normalised at run time.
+- **Premium** = `base_by_issue_age (blend at plan G) × plan_rel × gender × uw ×
+  preferred × hhd × state`. You enter **relativities**; gender/uw/preferred/hhd are
+  normalised by the business mix (weighted-mean factor = 1, so the base blend is
+  preserved), **plan is anchored at G = 1.00**, and state is a raw factor. The
+  Premium tab shows the derived factors.
+- **Morbidity factors** work the same way: the base claim-cost table is the gender
+  blend, with a gender relativity (mix-normalised) and preferred/hhd differentials.
+- **Distribution** = independent per-dimension weight factors that each sum to 1;
+  a cell's weight is their product, re-normalised at run time.
 
 ### Notes / deliberate choices
 - Every input is an assumption — premium factors, distribution weight factors, the
