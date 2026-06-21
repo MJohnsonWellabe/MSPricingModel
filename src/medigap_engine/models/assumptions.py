@@ -17,6 +17,17 @@ PROJECTION_YEARS = 30
 
 
 @dataclass
+class PullForwardAssumptions:
+    """Brings the experience-period base claims and premium forward to the pricing
+    period with a one-time factor ``(1 + trend) ** duration``. The pulled-forward
+    level *is* the year-1 (duration-1) level; the year-by-year projection trend
+    (``MorbidityAssumptions.trend_by_year``) then compounds from year 1->2 onward."""
+    duration: float = 1.75          # years from the experience period to the pricing period
+    claims_trend: float = 0.10      # annual claims trend used to pull current claims forward
+    premium_trend: float = 0.05     # annual premium trend used to pull current premium forward
+
+
+@dataclass
 class MorbidityAssumptions:
     ages: list[int]                          # attained-age axis for base claim costs
     plans: list[str]
@@ -27,8 +38,7 @@ class MorbidityAssumptions:
     cc_aging_by_duration: list[float]        # antiselection (col P) aging factor by duration
     preferred_diff: float                    # claims: 'no preferred' exceeds 'preferred' by this %
     hhd_diff: float                          # claims: 'no hhd' exceeds 'hhd' by this %
-    trend_by_year: list[float]               # claims trend by duration year
-    trend_first_year_exponent: float = 1.75  # power applied to (1+trend) in duration 1
+    trend_by_year: list[float]               # claims trend by duration year (projection trend)
 
 
 def normalized_factors(rel: dict, weights: dict) -> dict:
@@ -100,9 +110,6 @@ class PremiumAssumptions:
     preferred_diff: float                    # premium: non-preferred this % above preferred
     hhd_diff: float                          # premium: non-hhd this % above hhd
     state_factor: dict[str, float]
-    premium_trend: float = 0.0               # annual trend to bring current premium forward
-                                             # to the pricing period (one-time, over the same
-                                             # window as the claims first-year trend exponent)
 
     def base_for_age(self, issue_age: int) -> float:
         base = self.base_by_issue_age.get(issue_age)
@@ -205,4 +212,5 @@ class AssumptionSet:
     termination: TerminationAssumptions
     commission: CommissionAssumptions
     other: OtherAssumptions
+    pull_forward: PullForwardAssumptions = field(default_factory=PullForwardAssumptions)
     schema_version: str = "1"

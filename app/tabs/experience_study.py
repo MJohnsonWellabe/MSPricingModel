@@ -94,18 +94,25 @@ def _sales_section() -> None:
     st.markdown("**Base premium by issue age** (plan-G blend)")
     st.dataframe(_factor_df(p.base_by_issue_age, "Base premium"), use_container_width=True)
     pc = st.columns(3)
+    st.caption("The suggested differentials are editable — adjust before adopting.")
     with pc[0]:
         st.markdown("**Plan relativities (G = 1.00)**")
         st.dataframe(_factor_df(p.plan_rel, "Relativity"), use_container_width=True)
-        st.metric("Gender differential (M vs F)", f"{p.gender_diff * 100:.1f}%")
+        p.gender_diff = st.number_input(
+            "Gender differential (M vs F)", value=float(p.gender_diff),
+            step=0.01, format="%.3f", key="sales_gender_diff")
     with pc[1]:
         st.markdown("**UW relativities**")
         st.dataframe(_factor_df(p.uw_rel, "Relativity"), use_container_width=True)
-        st.metric("Non-preferred differential", f"{p.preferred_diff * 100:.1f}%")
+        p.preferred_diff = st.number_input(
+            "Non-preferred differential", value=float(p.preferred_diff),
+            step=0.01, format="%.3f", key="sales_pref_diff")
     with pc[2]:
         st.markdown("**State factor**")
         st.dataframe(_factor_df(p.state_factor, "Factor"), use_container_width=True, height=220)
-        st.metric("Non-HHD differential", f"{p.hhd_diff * 100:.1f}%")
+        p.hhd_diff = st.number_input(
+            "Non-HHD differential", value=float(p.hhd_diff),
+            step=0.01, format="%.3f", key="sales_hhd_diff")
 
     if st.button("Adopt distribution & premiums", type="primary"):
         from app.state import set_assumptions
@@ -147,7 +154,10 @@ def _claims_section() -> None:
 
     cols = st.columns(3)
     with cols[0]:
-        st.metric("Gender differential (M vs F)", f"{m['gender_diff'] * 100:.1f}%")
+        m["gender_diff"] = st.number_input(
+            "Gender differential (M vs F)", value=float(m["gender_diff"]),
+            step=0.01, format="%.3f", key="claims_gender_diff",
+            help="Suggested from the data — editable before adopting.")
     with cols[1]:
         st.markdown("**State factors (vs All)**")
         st.dataframe(pd.DataFrame(

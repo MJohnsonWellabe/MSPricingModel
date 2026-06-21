@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from app.state import get_assumptions, get_cells
+from app.state import get_assumptions, get_cells, get_formulas
 from medigap_engine.engine.run import normalize_weights
 from medigap_engine.engine.sensitivity import FACTORS, simulate_state
 from medigap_engine.io.defaults import available_states
@@ -79,7 +79,8 @@ def render() -> None:
         cells = normalize_weights(get_cells())
         rng = np.random.default_rng(job["seed"] + i)
         job["results"][states_j[i]] = simulate_state(
-            cells, asm, states_j[i], job["specs"], job["n_sims"], job["ci"], rng)
+            cells, asm, states_j[i], job["specs"], job["n_sims"], job["ci"], rng,
+            get_formulas())
         job["i"] = i + 1
         if job["i"] < total:
             st.rerun()

@@ -12,6 +12,7 @@ from typing import Callable, Optional
 import numpy as np
 
 from ..models.assumptions import AssumptionSet
+from ..models.formulas import FormulaSet
 from ..models.sensitivities import SensitivitySet
 from .forward_solver import precompute, project_aggregate, solve_with_precompute
 from .run import normalize_weights
@@ -32,15 +33,16 @@ def _draw(rng, specs: dict) -> SensitivitySet:
 
 
 def simulate_state(cells, asm: AssumptionSet, state: str, specs: dict,
-                   n_sims: int, ci: tuple[float, float], rng) -> dict:
+                   n_sims: int, ci: tuple[float, float], rng,
+                   formulas: Optional[FormulaSet] = None) -> dict:
     """Run ``n_sims`` stochastic simulations for one state; return a summary."""
     P = precompute(cells, asm, state)
     irrs, lrs = [], []
     target_met = 0
     for _ in range(n_sims):
         sens = _draw(rng, specs)
-        vec, info = solve_with_precompute(P, asm, sens)
-        irr, lifetime = project_aggregate(P, asm, sens, vec)
+        vec, info = solve_with_precompute(P, asm, sens, formulas=formulas)
+        irr, lifetime = project_aggregate(P, asm, sens, vec, formulas=formulas)
         irrs.append(irr)
         lrs.append(lifetime)
         if info.get("status") in ("converged", "target_met_without_rerate"):
@@ -62,7 +64,8 @@ def simulate_state(cells, asm: AssumptionSet, state: str, specs: dict,
 def run_stochastic(cells, asm: AssumptionSet, states: list[str], specs: dict,
                    n_sims: int = 100, ci: tuple[float, float] = (5.0, 95.0),
                    seed: int = 0,
-                   progress: Optional[Callable[[str, int, int], None]] = None) -> dict:
+                   progress: Optional[Callable[[str, int, int], None]] = None,
+                   formulas: Optional[FormulaSet] = None) -> dict:
     """Run stochastic sims across states. ``specs`` maps each factor name to
     (mean, std). Returns {state: summary}."""
     cells = normalize_weights(cells)
@@ -71,5 +74,5 @@ def run_stochastic(cells, asm: AssumptionSet, states: list[str], specs: dict,
     for si, state in enumerate(states):
         if progress:
             progress(state, si, len(states))
-        out[state] = simulate_state(cells, asm, state, specs, n_sims, ci, rng)
+        out[state] = simulate_state(cells, asm, state, specs, n_sims, ci, rng, formulas)
     return out

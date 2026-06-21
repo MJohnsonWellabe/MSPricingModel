@@ -38,12 +38,12 @@ def test_morbidity_sensitivity_scales_claims(asm, sample_cell, base_sens):
     assert abs(ratio - 1.10) < 1e-6
 
 
-def test_trend_first_year_exponent_changes_year1_claims(asm, sample_cell, base_sens):
+def test_pull_forward_duration_changes_year1_claims(asm, sample_cell, base_sens):
     rerates = list(asm.rerates.specified_rerates)
     base = project_cell(sample_cell, asm, base_sens, "All", rerates)
-    asm.morbidity.trend_first_year_exponent = 1.0
+    asm.pull_forward.duration = 1.0
     changed = project_cell(sample_cell, asm, base_sens, "All", rerates)
-    # year-1 trend uses the exponent, so year-1 claims must change
+    # the claims pull-forward uses the duration, so year-1 claims must change
     assert (base.projection.series["claims"][0]
             != changed.projection.series["claims"][0])
 

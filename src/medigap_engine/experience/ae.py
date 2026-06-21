@@ -15,7 +15,9 @@ MONTHS_PER_YEAR = 12.0
 
 
 def _trend_factor(asm: AssumptionSet, duration: int) -> float:
-    O = (1.0 + L.trend_year(asm, 1)) ** asm.morbidity.trend_first_year_exponent
+    # base claim cost is already pulled forward to the year-1 level; the projection
+    # trend compounds from year 1->2 onward (year-1 factor is 1.0).
+    O = 1.0
     for d in range(2, duration + 1):
         O *= 1.0 + L.trend_year(asm, d)
     return O

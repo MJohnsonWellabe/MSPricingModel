@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Optional
 
 from ..models.assumptions import AssumptionSet
 from ..models.cell import PricingCell
 from ..models.config import RunConfig
+from ..models.formulas import FormulaSet
 from ..models.results import RunResult, StateResult
 from .aggregate import aggregate_cells, aggregate_states
 from .forward_solver import solve_rerates
@@ -23,24 +25,25 @@ def normalize_weights(cells: list[PricingCell]) -> list[PricingCell]:
 
 def _project_state(
     state: str, cells: list[PricingCell], asm: AssumptionSet,
-    sens, rerates: list[float],
+    sens, rerates: list[float], formulas: Optional[FormulaSet],
 ) -> StateResult:
-    results = [project_cell(c, asm, sens, state, rerates) for c in cells]
+    results = [project_cell(c, asm, sens, state, rerates, formulas) for c in cells]
     return aggregate_cells(state, results, asm)
 
 
 def run_state(
     state: str, cells: list[PricingCell], asm: AssumptionSet, config: RunConfig,
+    formulas: Optional[FormulaSet] = None,
 ) -> tuple[StateResult, dict]:
     """Price one state, solving rerates if configured."""
     sens = config.sensitivities
 
     def projector(rerates: list[float]) -> StateResult:
-        return _project_state(state, cells, asm, sens, rerates)
+        return _project_state(state, cells, asm, sens, rerates, formulas)
 
     solve = config.solve_rerates and asm.rerates.solve
     if solve:
-        rerates, info = solve_rerates(cells, asm, sens, state)
+        rerates, info = solve_rerates(cells, asm, sens, state, formulas=formulas)
     else:
         rerates = list(asm.rerates.specified_rerates)
         info = {"status": "specified", "rerates": rerates}
@@ -55,6 +58,7 @@ def run_state(
 
 def run(
     cells: list[PricingCell], asm: AssumptionSet, config: RunConfig,
+    formulas: Optional[FormulaSet] = None,
 ) -> tuple[RunResult, dict[str, dict]]:
     """Run the model across all configured states.
 
@@ -64,7 +68,7 @@ def run(
     by_state: dict[str, StateResult] = {}
     diagnostics: dict[str, dict] = {}
     for state in config.states:
-        st, info = run_state(state, cells, asm, config)
+        st, info = run_state(state, cells, asm, config, formulas)
         by_state[state] = st
         diagnostics[state] = info
 

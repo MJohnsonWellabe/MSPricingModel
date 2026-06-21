@@ -67,3 +67,23 @@ def render() -> None:
             "Open the **Calculation** tab to execute."
         )
     st.caption("After clicking Run, go to the Calculation tab to compute results.")
+
+    st.divider()
+    st.subheader("Full model export / import")
+    st.caption(
+        "Download a single JSON capturing the **entire model** — assumptions, "
+        "sensitivities, state scope, solve toggle, and formulas. Another user who "
+        "imports it will reproduce your results exactly."
+    )
+    from app.state import load_model_json, model_json
+    mc = st.columns([1, 2])
+    mc[0].download_button("Download full model (JSON)", model_json(),
+                          "medigap_model.json", "application/json")
+    up = mc[1].file_uploader("Import full model JSON", type=["json"], key="model_upload")
+    if up is not None:
+        try:
+            load_model_json(up.getvalue().decode("utf-8"))
+            st.success("Model imported — assumptions, sensitivities, scope, and formulas "
+                       "loaded. Re-run on the Calculation tab to reproduce results.")
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not import model: {exc}")

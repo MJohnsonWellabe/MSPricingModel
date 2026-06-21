@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from app.state import get_assumptions, get_cells
+from app.state import get_assumptions, get_cells, get_formulas
 from medigap_engine.engine.aggregate import aggregate_states
 from medigap_engine.engine.run import normalize_weights, run_state
 from medigap_engine.models.assumptions import PROJECTION_YEARS
@@ -41,7 +41,7 @@ def render() -> None:
         st.progress(i / total, text=f"Pricing {states[i]} ({i + 1}/{total})…")
         asm = get_assumptions()
         cells = normalize_weights(get_cells())
-        st_res, info = run_state(states[i], cells, asm, job["config"])
+        st_res, info = run_state(states[i], cells, asm, job["config"], get_formulas())
         job["by_state"][states[i]] = st_res
         job["diag"][states[i]] = info
         job["i"] = i + 1

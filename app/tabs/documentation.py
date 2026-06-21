@@ -30,11 +30,14 @@ income statements.
 ### Claims (morbidity)
 `claims_d = base_cc × selection × trend_d × antiselection_d × state_factor × avg_lives`
 - `base_cc` = gender/age/plan base cost × preferred factor (UW only) × household
-  factor × morbidity sensitivity.
+  factor × morbidity sensitivity, **pulled forward** to the pricing period by
+  `(1 + claims_trend)^duration` (the one-time bring-forward on the Pull forward tab).
 - `selection` by (issue age, UW class, duration); carried forward beyond the
   table's last duration.
-- `trend_d`: `(1 + trend)^E` in year 1 (E = **first-year trend exponent**, an input
-  defaulting to 1.75), then compounding.
+- `trend_d` (projection trend): the pulled-forward base **is** the year-1 level, so
+  the cumulative trend factor is `1.0` in year 1 and compounds `(1 + trend_d)` from
+  year 1→2 onward. The pull-forward claims trend need not equal the year-1 projection
+  trend.
 - **Antiselection (column P):** `P_1 = 1`;
   `P_d = (1 + aging_d) × P_{d-1} + λ_claims × (rerate_d − trend_d)` (× antiselective-claims
   sensitivity). The lapse load uses a separate `λ_lapse`. **Both λ default to 0.5** and are
@@ -90,9 +93,9 @@ view.
   single **differential** (e.g. male +15%, non-HHD +14%, non-preferred +10%) and the
   Y/N factors are derived, normalised by the business mix so the blend is preserved;
   **plan is anchored at G = 1.00**; uw is a relativity table; state is a raw factor.
-  The premium is then **brought forward to the pricing period** once by
-  `(1 + premium_trend)^E` (E = the same first-year trend exponent used for claims),
-  mirroring how current claims are trended forward; subsequent premium changes over the
+  The premium is then **pulled forward to the pricing period** once by
+  `(1 + premium_trend)^duration` (the Pull forward tab; same `duration` as claims),
+  mirroring how current claims are pulled forward; subsequent premium changes over the
   projection are driven by the rerate solver, not by continued premium trend.
 - **Morbidity** works the same way: gender claim cost is a single differential
   (+15%) on the gender-blend base table; preferred/hhd are differentials.
@@ -109,13 +112,33 @@ sims (numpy) so hundreds of simulations run in seconds.
 ### Experience study coverage
 Sales data → distribution weights and the premium factor model. Claims data → base
 claim cost by plan & attained age, the gender differential, state morbidity factors,
-and UW selection by duration (claim-cost aging is a diagnostic). Lapse, mortality,
-trend, commission and economic assumptions are not in the data and stay manual.
+and UW selection by duration (claim-cost aging is a diagnostic). The suggested
+differentials are editable before adopting. Lapse, mortality, trend, commission and
+economic assumptions are not in the data and stay manual.
+
+### Formula Database (editable engine)
+Every per-duration line item — lives, lapse, premium, claims, expenses, income and
+capital — is an **editable expression** over a resolved variable namespace
+(lookups + prior-duration carry + assumption scalars). The same expressions evaluate
+on scalars (the per-cell projection) and on numpy arrays (the rerate solver and the
+stochastic engine), so editing a formula stays consistent everywhere. Expressions are
+parsed against a strict whitelist (arithmetic, comparisons, `if/else`, and the helpers
+`minimum/maximum/clamp/where/abs`) — no attribute access, imports or other calls. The
+**Validate** button parses and test-evaluates the whole set on a sample namespace
+before a run. Loss ratio, IRR and NPV remain derived metrics. Defaults reproduce the
+workbook math exactly.
+
+### Full model export / import
+The Configuration tab can download and upload a single JSON capturing the **entire
+model** — assumptions, sensitivities, state scope, solve toggle and formulas. Pricing
+cells are derived from the distribution, so they need not be stored. Importing a model
+and re-running reproduces the original results exactly.
 
 ### Notes / deliberate choices
 - Every input is an assumption — premium factors, distribution weight factors, the
-  two antiselection λ (claims & lapse), and the first-year trend exponent are all
-  editable; nothing pricing-relevant is hard-coded.
+  two antiselection λ (claims & lapse), the pull-forward (claims/premium trend &
+  duration), and the projection trend are all editable; even the **formulas** are
+  editable, and nothing pricing-relevant is hard-coded.
 - Selection factors are carried forward past the source table's 5 durations.
 - Acquisition costs are treated as one-time at issue; maintenance recurs.
 - The in-year LR floor is a **hard** rule (rerates scaled back to respect it);

@@ -1,5 +1,10 @@
 {
  "schema_version": "1",
+ "pull_forward": {
+  "duration": 1.75,
+  "claims_trend": 0.1,
+  "premium_trend": 0.05
+ },
  "morbidity": {
   "ages": [
    65,
@@ -799,8 +804,7 @@
    0.06,
    0.06,
    0.06
-  ],
-  "trend_first_year_exponent": 1.75
+  ]
  },
  "premium": {
   "base_by_issue_age": {
@@ -824,7 +828,6 @@
   "gender_diff": 0.15,
   "preferred_diff": 0.1,
   "hhd_diff": 0.14,
-  "premium_trend": 0.05,
   "state_factor": {
    "TX": 1.0,
    "All": 1.013108,

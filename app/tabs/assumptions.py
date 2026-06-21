@@ -49,23 +49,53 @@ def render() -> None:
 
     asm = get_assumptions()
     sub = st.tabs([
-        "Morbidity", "Premium", "Rerates", "Distribution",
-        "Termination", "Commission", "Economic assumptions",
+        "Pull forward", "Distribution", "Premium", "Rerates",
+        "Termination", "Morbidity", "Commission", "Economic assumptions",
     ])
     with sub[0]:
-        _morbidity(asm)
+        _pull_forward(asm)
     with sub[1]:
-        _premium(asm)
-    with sub[2]:
-        _rerates(asm)
-    with sub[3]:
         _distribution(asm)
+    with sub[2]:
+        _premium(asm)
+    with sub[3]:
+        _rerates(asm)
     with sub[4]:
         _termination(asm)
     with sub[5]:
-        _commission(asm)
+        _morbidity(asm)
     with sub[6]:
+        _commission(asm)
+    with sub[7]:
         _economic(asm)
+
+
+def _pull_forward(asm) -> None:
+    pf = asm.pull_forward
+    st.subheader("Pull experience forward to the pricing period")
+    st.caption(
+        "Current (experience-period) base claims and base premium are brought forward "
+        "to the pricing period by a one-time factor (1 + trend) ^ duration. The "
+        "pulled-forward level is the year-1 level; the year-by-year claims trend on the "
+        "Morbidity tab then compounds from year 1 onward. The pull-forward claims trend "
+        "need not equal the year-1 projection trend."
+    )
+    c = st.columns(3)
+    pf.duration = c[0].number_input(
+        "Duration (years to pull forward)", value=float(pf.duration), step=0.05,
+        format="%.2f", help="Years from the experience period to the pricing period "
+        "(was the hard-coded 1.75 trend exponent).")
+    pf.claims_trend = c[1].number_input(
+        "Claims trend (pull-forward)", value=float(pf.claims_trend), step=0.01,
+        format="%.3f")
+    pf.premium_trend = c[2].number_input(
+        "Premium trend (pull-forward)", value=float(pf.premium_trend), step=0.01,
+        format="%.3f")
+    st.caption(
+        f"→ claims bring-forward factor: (1 + {pf.claims_trend:.3f})^{pf.duration:.2f} = "
+        f"{(1.0 + pf.claims_trend) ** pf.duration:.5f}  |  "
+        f"premium bring-forward factor: (1 + {pf.premium_trend:.3f})^{pf.duration:.2f} = "
+        f"{(1.0 + pf.premium_trend) ** pf.duration:.5f}")
 
 
 def _morbidity(asm) -> None:
@@ -86,12 +116,10 @@ def _morbidity(asm) -> None:
     gf = normalized_factors({"M": 1.0 + m.gender_cc_diff, "F": 1.0}, asm.distribution.gender)
     st.caption(f"→ derived factors: M = {gf['M']:.5f}, F = {gf['F']:.5f}")
 
-    st.subheader("Trend by duration year")
-    m.trend_first_year_exponent = st.number_input(
-        "First-year trend exponent (applied to (1+trend) in duration 1)",
-        value=float(m.trend_first_year_exponent), step=0.05, format="%.2f",
-        help="Reflects time from pricing to the midpoint of the first duration. "
-             "Was hard-coded to 1.75 in the workbook; now an input.")
+    st.subheader("Projection trend by duration year")
+    st.caption("Year-by-year claims trend, compounding from year 1 onward. The "
+               "one-time pull-forward of current claims to the pricing period is set "
+               "on the Pull forward tab.")
     tdf = pd.DataFrame({"Trend": m.trend_by_year}, index=range(1, len(m.trend_by_year) + 1))
     ted = st.data_editor(tdf, use_container_width=True, height=240, key="trend")
     m.trend_by_year = ted["Trend"].tolist()
@@ -203,17 +231,9 @@ def _premium(asm) -> None:
         st.caption("→ factors: " + ", ".join(f"{k} = {v:.4f}" for k, v in ufac.items()))
     st.markdown("**State factor** (raw)")
     p.state_factor = _dict_editor(p.state_factor, "Factor", "prem_state")
-
-    st.subheader("Premium trend (bring current premium forward)")
-    p.premium_trend = st.number_input(
-        "Annual premium trend", value=float(p.premium_trend), step=0.01, format="%.3f",
-        help="Brings the current premium level forward to the pricing period, just like the "
-             "claims first-year trend brings current claims forward — over the same window.")
-    exp = asm.morbidity.trend_first_year_exponent
-    st.caption(f"→ one-time bring-forward factor: (1 + {p.premium_trend:.3f})^{exp:.2f} = "
-               f"{(1.0 + p.premium_trend) ** exp:.5f} "
-               f"(uses the same {exp:.2f}-period as the claims first-year trend exponent on "
-               f"the Morbidity tab). Future premium changes are driven by the rerate solver.")
+    st.caption("The one-time pull-forward of current premium to the pricing period is "
+               "set on the Pull forward tab; future premium changes are driven by the "
+               "rerate solver.")
 
 
 def _distribution(asm) -> None:

@@ -11,9 +11,23 @@ from ..models.assumptions import (
     MorbidityAssumptions,
     OtherAssumptions,
     PremiumAssumptions,
+    PullForwardAssumptions,
     RerateAssumptions,
     TerminationAssumptions,
 )
+from ..models.formulas import FormulaSet, FormulaStep
+
+
+def formulas_to_list(fset: FormulaSet) -> list[dict]:
+    return [{"name": s.name, "category": s.category, "expr": s.expr, "doc": s.doc}
+            for s in fset.steps]
+
+
+def formulas_from_list(rows: list) -> FormulaSet:
+    return FormulaSet(steps=[
+        FormulaStep(name=str(r["name"]), category=str(r["category"]),
+                    expr=str(r["expr"]), doc=str(r.get("doc", "")))
+        for r in rows])
 
 
 def assumptions_from_dict(d: dict) -> AssumptionSet:
@@ -29,7 +43,6 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
         preferred_diff=float(m["preferred_diff"]),
         hhd_diff=float(m["hhd_diff"]),
         trend_by_year=list(m["trend_by_year"]),
-        trend_first_year_exponent=float(m.get("trend_first_year_exponent", 1.75)),
     )
     r = d["rerates"]
     rerates = RerateAssumptions(
@@ -57,8 +70,20 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
         preferred_diff=float(p["preferred_diff"]),
         hhd_diff=float(p["hhd_diff"]),
         state_factor={k: float(v) for k, v in p["state_factor"].items()},
-        premium_trend=float(p.get("premium_trend", 0.0)),
     )
+    if "pull_forward" in d:
+        pf = d["pull_forward"]
+        pull_forward = PullForwardAssumptions(
+            duration=float(pf.get("duration", 1.75)),
+            claims_trend=float(pf.get("claims_trend", 0.10)),
+            premium_trend=float(pf.get("premium_trend", 0.05)),
+        )
+    else:  # migrate legacy assumptions (pre-pull-forward refactor)
+        pull_forward = PullForwardAssumptions(
+            duration=float(m.get("trend_first_year_exponent", 1.75)),
+            claims_trend=float(m["trend_by_year"][0]) if m.get("trend_by_year") else 0.10,
+            premium_trend=float(p.get("premium_trend", 0.05)),
+        )
     dist = d["distribution"]
     distribution = DistributionAssumptions(
         by_issue_age={int(k): float(v) for k, v in dist["by_issue_age"].items()},
@@ -92,17 +117,22 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
     return AssumptionSet(
         morbidity=morbidity, premium=premium, rerates=rerates, distribution=distribution,
         termination=termination, commission=commission, other=other,
+        pull_forward=pull_forward,
         schema_version=str(d.get("schema_version", "1")),
     )
 
 
 def assumptions_to_dict(a: AssumptionSet) -> dict:
-    m, p, r, dist, t, c, o = (
+    m, p, r, dist, t, c, o, pf = (
         a.morbidity, a.premium, a.rerates, a.distribution, a.termination,
-        a.commission, a.other,
+        a.commission, a.other, a.pull_forward,
     )
     return {
         "schema_version": a.schema_version,
+        "pull_forward": {
+            "duration": pf.duration, "claims_trend": pf.claims_trend,
+            "premium_trend": pf.premium_trend,
+        },
         "morbidity": {
             "ages": m.ages, "plans": m.plans,
             "base_cc": m.base_cc, "gender_cc_diff": m.gender_cc_diff,
@@ -110,14 +140,12 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
             "cc_aging_by_duration": m.cc_aging_by_duration,
             "preferred_diff": m.preferred_diff, "hhd_diff": m.hhd_diff,
             "trend_by_year": m.trend_by_year,
-            "trend_first_year_exponent": m.trend_first_year_exponent,
         },
         "premium": {
             "base_by_issue_age": p.base_by_issue_age,
             "plan_rel": p.plan_rel, "uw_rel": p.uw_rel,
             "gender_diff": p.gender_diff, "preferred_diff": p.preferred_diff,
             "hhd_diff": p.hhd_diff, "state_factor": p.state_factor,
-            "premium_trend": p.premium_trend,
         },
         "rerates": {
             "solve": r.solve, "specified_rerates": r.specified_rerates,

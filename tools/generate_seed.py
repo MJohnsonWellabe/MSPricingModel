@@ -89,8 +89,14 @@ def build_assumptions(A) -> dict:
     uw_factor = [round(uw_lapse[i] / oe_lapse[i], 6) if oe_lapse[i] else 1.0
                  for i in range(len(oe_lapse))]
 
+    trend_by_year = [_rnd(c("G", r), 4) for r in range(3, 33)]
     return {
         "schema_version": "1",
+        "pull_forward": {
+            "duration": 1.75,
+            "claims_trend": trend_by_year[0],
+            "premium_trend": 0.05,
+        },
         "morbidity": {
             "ages": ages, "plans": PLANS,
             # base_cc is converted to the gender blend in main() using the gender mix
@@ -101,8 +107,7 @@ def build_assumptions(A) -> dict:
             "cc_aging_by_duration": [_rnd(c("AL", r), 6) or 0.0 for r in range(3, 33)],
             "preferred_diff": round(pref_n / pref_y - 1, 6),
             "hhd_diff": round(hhd_n / hhd_y - 1, 6),
-            "trend_by_year": [_rnd(c("G", r), 4) for r in range(3, 33)],
-            "trend_first_year_exponent": 1.75,
+            "trend_by_year": trend_by_year,
         },
         "rerates": {
             "solve": True,
@@ -213,7 +218,6 @@ def build_factor_blocks(cells: list) -> tuple[dict, dict]:
         "gender_diff": diff("gender", "M", "F"),
         "preferred_diff": diff("preferred", "N", "Y"),
         "hhd_diff": diff("hhd", "N", "Y"),
-        "premium_trend": 0.05,
         "state_factor": state_factor,
     }
 
@@ -257,8 +261,8 @@ def main(path: str) -> None:
 
     # order keys for readability
     ordered = {}
-    for k in ("schema_version", "morbidity", "premium", "rerates", "distribution",
-              "termination", "commission", "other"):
+    for k in ("schema_version", "pull_forward", "morbidity", "premium", "rerates",
+              "distribution", "termination", "commission", "other"):
         if k in assumptions:
             ordered[k] = assumptions[k]
     for k in assumptions:

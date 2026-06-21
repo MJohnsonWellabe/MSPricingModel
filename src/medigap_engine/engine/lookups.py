@@ -9,7 +9,8 @@ from ..models.assumptions import AssumptionSet, derive_two_level, normalized_fac
 
 def base_claim_cost(asm: AssumptionSet, gender: str, attained_age: int, plan: str) -> float:
     """Base (gender-blend) claim cost by attained age and plan, scaled by the
-    gender relativity normalised against the gender mix. Ages outside the table
+    gender relativity normalised against the gender mix and brought forward to the
+    pricing period by the one-time claims pull-forward. Ages outside the table
     clamp to the nearest end; intermediate ages use the nearest age at or below."""
     morb = asm.morbidity
     ages = morb.ages
@@ -23,14 +24,16 @@ def base_claim_cost(asm: AssumptionSet, gender: str, attained_age: int, plan: st
             if ag <= a:
                 idx = i
     gfac = normalized_factors({"M": 1.0 + morb.gender_cc_diff, "F": 1.0}, asm.distribution.gender)
-    return table[idx] * gfac.get(gender, 1.0)
+    pf = asm.pull_forward
+    bring_forward = (1.0 + pf.claims_trend) ** pf.duration
+    return table[idx] * gfac.get(gender, 1.0) * bring_forward
 
 
 def premium_for_cell(asm: AssumptionSet, key, state: str) -> float:
     """Premium = base(blend at plan G) × plan relativity (G-anchored) × mix-normalised
     gender/preferred/hhd differentials and uw relativity × raw state factor, brought
-    forward to the pricing period by the one-time premium trend (over the same window
-    as the claims first-year trend exponent)."""
+    forward to the pricing period by the one-time premium pull-forward (same window
+    as the claims pull-forward)."""
     p = asm.premium
     dist = asm.distribution
     base = p.base_for_age(key.issue_age)
@@ -40,7 +43,8 @@ def premium_for_cell(asm: AssumptionSet, key, state: str) -> float:
     h = normalized_factors({"N": 1.0 + p.hhd_diff, "Y": 1.0}, dist.hhd).get(key.hhd, 1.0)
     uw = normalized_factors(p.uw_rel, dist.uw).get(key.uw_class, 1.0)
     sf = p.state_factor.get(state, p.state_factor.get("All", 1.0))
-    bring_forward = (1.0 + p.premium_trend) ** asm.morbidity.trend_first_year_exponent
+    pf = asm.pull_forward
+    bring_forward = (1.0 + pf.premium_trend) ** pf.duration
     return base * plan_f * g * pr * h * uw * sf * bring_forward
 
 
