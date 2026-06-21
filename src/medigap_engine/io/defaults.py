@@ -31,9 +31,12 @@ def _load_json(name: str) -> object:
 def load_template_csv(name: str) -> str:
     """Return the text of a bundled template/sample CSV under data/templates/.
 
-    ``name`` is e.g. 'sales_template.csv', 'claims_sample.csv'."""
+    ``name`` is e.g. 'sales_template.csv', 'claims_sample.csv'. Anchored on the
+    ``medigap_engine.data`` package and navigated into ``templates`` so it works
+    as a namespace package under Pyodide."""
     if _files is not None:
-        return _files("medigap_engine.data.templates").joinpath(name).read_text(encoding="utf-8")
+        return (_files("medigap_engine.data").joinpath("templates").joinpath(name)
+                .read_text(encoding="utf-8"))
     import os  # pragma: no cover
     here = os.path.join(os.path.dirname(__file__), "..", "data", "templates", name)
     with open(here, encoding="utf-8") as fh:  # pragma: no cover

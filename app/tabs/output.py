@@ -35,22 +35,20 @@ def render() -> None:
         return
 
     st.subheader("Summary by state")
-    rows = []
-    for state, st_res in result.by_state.items():
-        rows.append({
-            "State": state,
-            "Lifetime LR": round(st_res.lifetime_lr, 4),
-            "IRR": round(st_res.irr, 4),
-            "NPV pre-tax income": round(st_res.npv_pretax, 2),
-            "NPV premium": round(st_res.npv_premium, 2),
-        })
+
+    def _row(name, r):
+        return {
+            "State": name,
+            "Lifetime LR": round(r.lifetime_lr, 4),
+            "Pretax margin": round(r.pretax_margin, 4),
+            "IRR": round(r.irr, 4),
+            "NPV pre-tax income": round(r.npv_pretax, 2),
+            "NPV premium": round(r.npv_premium, 2),
+        }
+
+    rows = [_row(state, r) for state, r in result.by_state.items()]
     if result.all_states and len(result.by_state) > 1:
-        cs = result.all_states
-        rows.append({
-            "State": "Combined", "Lifetime LR": round(cs.lifetime_lr, 4),
-            "IRR": round(cs.irr, 4), "NPV pre-tax income": round(cs.npv_pretax, 2),
-            "NPV premium": round(cs.npv_premium, 2),
-        })
+        rows.append(_row("Combined", result.all_states))
     summary = pd.DataFrame(rows)
     st.dataframe(summary, hide_index=True, use_container_width=True)
     st.download_button("Download summary (CSV)", summary.to_csv(index=False),
@@ -63,7 +61,8 @@ def render() -> None:
     data = {label: series[key] for key, label in _INCOME_ROWS}
     df = pd.DataFrame(data).T
     df.columns = [f"Yr {i}" for i in range(1, PROJECTION_YEARS + 1)]
-    st.dataframe(df, use_container_width=True, height=560)
+    # st.table keeps the income-statement row order fixed (no interactive re-sort)
+    st.table(df.style.format("{:,.2f}"))
 
     st.line_chart(pd.DataFrame({
         "In-year LR": series["in_year_lr"],
@@ -75,11 +74,12 @@ def render() -> None:
     from app.state import get_assumptions
     asm = get_assumptions()
     trend = asm.morbidity.trend_by_year
-    rerate = series.get("rerate_used", [0.0] * PROJECTION_YEARS)
+    rerate = result.by_state[state].rerates or [0.0] * PROJECTION_YEARS
     tr = pd.DataFrame({
         "Duration": list(range(1, PROJECTION_YEARS + 1)),
         "Trend": [trend[min(i, len(trend) - 1)] for i in range(PROJECTION_YEARS)],
-        "Rerate used": rerate,
+        "Rerate used": [rerate[i] if i < len(rerate) else 0.0
+                        for i in range(PROJECTION_YEARS)],
     })
     st.dataframe(tr, hide_index=True, use_container_width=True, height=320)
     st.line_chart(tr.set_index("Duration")[["Trend", "Rerate used"]])

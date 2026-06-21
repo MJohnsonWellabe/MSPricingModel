@@ -31,3 +31,28 @@ def test_claim_class_factors_preferred_only_for_uw(asm):
     oe = L.claim_class_factors(asm, "OE", "Y", "N")
     # preferred factor applies only for UW, so the two differ by the preferred factor
     assert uw != oe
+
+
+def test_base_claim_cost_gender_factor(asm):
+    # male = base x gender factor; female = base (reference) when F factor is 1
+    m = L.base_claim_cost(asm, "M", 70, "G")
+    f = L.base_claim_cost(asm, "F", 70, "G")
+    assert abs(m / f - asm.morbidity.gender_cc_factor["M"]) < 1e-9
+
+
+def test_derive_two_level_reproduces_workbook():
+    from medigap_engine.models.assumptions import derive_two_level
+    # 90% preferred, 'no' 10% higher -> 0.990099 / 1.089109
+    f = derive_two_level(0.9, 0.10)
+    assert abs(f["Y"] - 0.990099) < 1e-5
+    assert abs(f["N"] - 1.089109) < 1e-5
+    # distribution-weighted mean is 1
+    assert abs(0.9 * f["Y"] + 0.1 * f["N"] - 1.0) < 1e-9
+
+
+def test_uw_lapse_factor_applied(asm):
+    base = L.lapse_rate(asm, "OE", 1)
+    uw = L.lapse_rate(asm, "UW", 1)
+    assert abs(uw / base - asm.termination.uw_lapse_factor[0]) < 1e-9
+    # OE and GI both use the base (factor 1)
+    assert L.lapse_rate(asm, "GI", 1) == base

@@ -69,21 +69,19 @@ def render() -> None:
 
 
 def _morbidity(asm) -> None:
+    from medigap_engine.models.assumptions import derive_two_level
+
     m = asm.morbidity
     st.subheader("Base claim costs by plan and attained age")
-    cols = st.columns(2)
-    with cols[0]:
-        st.markdown("**Male**")
-        dfm = pd.DataFrame(m.base_cc_male, index=m.ages)
-        edm = st.data_editor(dfm, use_container_width=True, height=300, key="cc_male")
-        for p in m.plans:
-            m.base_cc_male[p] = edm[p].tolist()
-    with cols[1]:
-        st.markdown("**Female**")
-        dff = pd.DataFrame(m.base_cc_female, index=m.ages)
-        edf = st.data_editor(dff, use_container_width=True, height=300, key="cc_female")
-        for p in m.plans:
-            m.base_cc_female[p] = edf[p].tolist()
+    st.caption("One base table (reference gender); the gender factor scales it. "
+               "Claim cost(gender) = base × gender factor.")
+    dfb = pd.DataFrame(m.base_cc, index=m.ages)
+    edb = st.data_editor(dfb, use_container_width=True, height=300, key="cc_base")
+    for p in m.plans:
+        if p in edb:
+            m.base_cc[p] = edb[p].tolist()
+    st.markdown("**Gender claim-cost factor**")
+    m.gender_cc_factor = _dict_editor(m.gender_cc_factor, "Factor", "cc_gender", fmt="%.4f")
 
     st.subheader("Trend by duration year")
     m.trend_first_year_exponent = st.number_input(
@@ -98,15 +96,23 @@ def _morbidity(asm) -> None:
     st.subheader("State morbidity factors")
     m.state_factors = _dict_editor(m.state_factors, "Factor", "state_factors", fmt="%.5f")
 
-    st.subheader("Household & preferred claim factors")
+    st.subheader("Household & preferred claim differentials")
+    st.caption("Enter how much higher the 'No' level is than the 'Yes' level. The Y/N "
+               "factors are derived so the distribution-weighted mean stays 1 (the base "
+               "claim cost already carries the blend).")
     c = st.columns(2)
     with c[0]:
-        st.caption("Preferred (applied for UW class only)")
-        m.preferred_factor = _dict_editor(m.preferred_factor, "Factor",
-                                          "claim_pref", fmt="%.5f")
+        m.preferred_diff = st.number_input(
+            "Non-preferred is higher than preferred by", value=float(m.preferred_diff),
+            step=0.01, format="%.3f", help="Applied for UW class only.")
+        pf = derive_two_level(asm.distribution.preferred.get("Y", 0.5), m.preferred_diff)
+        st.caption(f"→ derived factors: Y = {pf['Y']:.5f}, N = {pf['N']:.5f}")
     with c[1]:
-        st.caption("Household discount")
-        m.hhd_factor = _dict_editor(m.hhd_factor, "Factor", "claim_hhd", fmt="%.5f")
+        m.hhd_diff = st.number_input(
+            "Non-HHD is higher than HHD by", value=float(m.hhd_diff),
+            step=0.01, format="%.3f")
+        hf = derive_two_level(asm.distribution.hhd.get("Y", 0.5), m.hhd_diff)
+        st.caption(f"→ derived factors: Y = {hf['Y']:.5f}, N = {hf['N']:.5f}")
     st.caption("Selection (antiselection) factors and claim-cost aging are shown "
                "read-only here; they will become editable in a later phase.")
 
@@ -202,12 +208,19 @@ def _distribution(asm) -> None:
 
 def _termination(asm) -> None:
     t = asm.termination
-    st.subheader("Base lapse rates by duration and UW class")
-    ldf = pd.DataFrame(t.base_lapse, index=range(1, PROJECTION_YEARS + 1))
-    led = st.data_editor(ldf, use_container_width=True, height=320, key="lapse")
-    for k in t.base_lapse:
-        if k in led:
-            t.base_lapse[k] = led[k].tolist()
+    st.subheader("Base lapse (OE/GI) and UW factor by duration")
+    st.caption("UW lapse = base lapse × UW factor. OE and GI use the base directly.")
+    ldf = pd.DataFrame(
+        {"Base lapse (OE/GI)": t.base_lapse, "UW factor": t.uw_lapse_factor},
+        index=range(1, PROJECTION_YEARS + 1))
+    led = st.data_editor(
+        ldf, use_container_width=True, height=320, key="lapse",
+        column_config={
+            "Base lapse (OE/GI)": st.column_config.NumberColumn(format="%.5f"),
+            "UW factor": st.column_config.NumberColumn(format="%.4f"),
+        })
+    t.base_lapse = led["Base lapse (OE/GI)"].tolist()
+    t.uw_lapse_factor = led["UW factor"].tolist()
 
     st.subheader("Termination duration scaling")
     c = st.columns(2)

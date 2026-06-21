@@ -76,19 +76,30 @@ def build_assumptions(A) -> dict:
 
     sc = {A.cell(r, 1).value: A.cell(r, 2).value for r in range(2, 14)}
 
+    # gender claim cost: male = 1.15 x female; store female as the base table
+    cc_female = cc(["AE", "AF", "AG"])
+    cc_male = cc(["Y", "Z", "AA"])
+    gender_ratio = round(cc_male["G"][0] / cc_female["G"][0], 6) if cc_female["G"][0] else 1.15
+    # preferred / hhd differentials (no-level over yes-level), from the workbook factors
+    pref_y, pref_n = _rnd(c("AT", 4)), _rnd(c("AT", 5))
+    hhd_y, hhd_n = _rnd(c("AU", 4)), _rnd(c("AU", 5))
+    # OE/GI ("other") lapse and the UW factor by duration
+    oe_lapse = [_rnd(c("BM", r)) for r in range(3, 33)]
+    uw_lapse = [_rnd(c("BO", r)) for r in range(3, 33)]
+    uw_factor = [round(uw_lapse[i] / oe_lapse[i], 6) if oe_lapse[i] else 1.0
+                 for i in range(len(oe_lapse))]
+
     return {
         "schema_version": "1",
         "morbidity": {
             "ages": ages, "plans": PLANS,
-            "base_cc_male": cc(["Y", "Z", "AA"]),
-            "base_cc_female": cc(["AE", "AF", "AG"]),
+            "base_cc": cc_female,
+            "gender_cc_factor": {"M": gender_ratio, "F": 1.0},
             "state_factors": state_factors,
             "selection_factors": selection,
             "cc_aging_by_duration": [_rnd(c("AL", r), 6) or 0.0 for r in range(3, 33)],
-            "preferred_factor": {str(c("AS", 4)): _rnd(c("AT", 4)),
-                                 str(c("AS", 5)): _rnd(c("AT", 5))},
-            "hhd_factor": {str(c("AS", 4)): _rnd(c("AU", 4)),
-                           str(c("AS", 5)): _rnd(c("AU", 5))},
+            "preferred_diff": round(pref_n / pref_y - 1, 6),
+            "hhd_diff": round(hhd_n / hhd_y - 1, 6),
             "trend_by_year": [_rnd(c("G", r), 4) for r in range(3, 33)],
             "trend_first_year_exponent": 1.75,
         },
@@ -99,17 +110,14 @@ def build_assumptions(A) -> dict:
             "aging_rerate_by_age_factor": [_rnd(c("AJ", r), 6) for r in range(3, 39)],
             "target_lifetime_lr": 0.78, "target_irr": 0.15,
             "max_rerate": 0.20, "in_year_lr_floor": 0.65,
-            "consecutive_z": 0.15, "consecutive_b": 3,
+            "consecutive_z": 0.15, "consecutive_b": 5,
             "antiselection_lambda_claims": 0.5, "antiselection_lambda_lapse": 0.5,
         },
         # "premium" and "distribution" are factor models derived from the cell
         # universe; see build_factor_blocks() and main().
         "termination": {
-            "base_lapse": {
-                "OE": [_rnd(c("BM", r)) for r in range(3, 33)],
-                "GI": [_rnd(c("BN", r)) for r in range(3, 33)],
-                "UW": [_rnd(c("BO", r)) for r in range(3, 33)],
-            },
+            "base_lapse": oe_lapse,
+            "uw_lapse_factor": uw_factor,
             "state_factors": {k: 1.0 for k in state_factors},
             "mort_age": [int(c("BS", r)) for r in range(3, 104)],
             "mort_qx": [_rnd(c("BT", r), 8) for r in range(3, 104)],

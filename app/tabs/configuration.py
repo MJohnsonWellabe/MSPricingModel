@@ -32,8 +32,9 @@ def render() -> None:
         if scope.startswith("All"):
             selected = ["All"]
         else:
+            # "All" remains selectable alongside individual states
             selected = st.multiselect(
-                "States", [s for s in states if s != "All"],
+                "States", states,
                 default=[s for s in states if s != "All"][:3],
             )
             if not selected:

@@ -71,7 +71,12 @@ class StateResult:
     lifetime_lr: float
     npv_pretax: float
     npv_premium: float
+    rerates: list[float] = field(default_factory=list)   # rerate % used by duration
     cells: list[CellResult] = field(default_factory=list)
+
+    @property
+    def pretax_margin(self) -> float:
+        return self.npv_pretax / self.npv_premium if self.npv_premium else 0.0
 
 
 @dataclass

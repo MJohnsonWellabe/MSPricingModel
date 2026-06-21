@@ -33,8 +33,8 @@ def test_apply_claims_recalibrates_level_and_state(asm):
         "selection": {}, "aging_by_duration": {},
     }
     new = apply_claims(asm, claims)
-    # plan G male table scaled up (factor uses gender-blend, so ~ within range)
-    assert new.morbidity.base_cc_male["G"][0] > asm.morbidity.base_cc_male["G"][0]
+    # plan G base table scaled up (factor uses gender-blend, so ~ within range)
+    assert new.morbidity.base_cc["G"][0] > asm.morbidity.base_cc["G"][0]
     assert new.morbidity.state_factors["CA"] == 1.5
     # plan F untouched
-    assert new.morbidity.base_cc_male["F"] == asm.morbidity.base_cc_male["F"]
+    assert new.morbidity.base_cc["F"] == asm.morbidity.base_cc["F"]

@@ -96,8 +96,7 @@ def apply_claims(asm: AssumptionSet, claims: dict) -> AssumptionSet:
                 ratios.append(obs / cur)
         if ratios:
             factor = sum(ratios) / len(ratios)
-            morb.base_cc_male[plan] = [v * factor for v in morb.base_cc_male[plan]]
-            morb.base_cc_female[plan] = [v * factor for v in morb.base_cc_female[plan]]
+            morb.base_cc[plan] = [v * factor for v in morb.base_cc[plan]]
 
     # state factors from observed relativities (keep existing where not observed)
     for state, f in claims["state_factors"].items():

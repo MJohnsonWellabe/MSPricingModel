@@ -20,18 +20,25 @@ PROJECTION_YEARS = 30
 class MorbidityAssumptions:
     ages: list[int]                          # attained-age axis for base claim costs
     plans: list[str]
-    base_cc_male: dict[str, list[float]]     # plan -> claim cost by age
-    base_cc_female: dict[str, list[float]]
+    base_cc: dict[str, list[float]]          # plan -> base claim cost by age (reference gender)
+    gender_cc_factor: dict[str, float]       # M/F -> claim cost factor on the base table
     state_factors: dict[str, float]          # state -> claim cost factor
     selection_factors: list[dict]            # rows of {duration, issue_age, uw, factor}
     cc_aging_by_duration: list[float]        # antiselection (col P) aging factor by duration
-    preferred_factor: dict[str, float]       # Y/N -> factor (applied for UW class only)
-    hhd_factor: dict[str, float]             # Y/N -> factor
+    preferred_diff: float                    # claims: 'no preferred' exceeds 'preferred' by this %
+    hhd_diff: float                          # claims: 'no hhd' exceeds 'hhd' by this %
     trend_by_year: list[float]               # claims trend by duration year
     trend_first_year_exponent: float = 1.75  # power applied to (1+trend) in duration 1
 
-    def base_cc(self, gender: str) -> dict[str, list[float]]:
-        return self.base_cc_male if gender == "M" else self.base_cc_female
+
+def derive_two_level(weight_yes: float, diff: float) -> dict[str, float]:
+    """Back out Y/N factors from a differential, normalised so the
+    distribution-weighted mean is 1 (the base table already carries the blend):
+    f_N = (1+diff) * f_Y, and w_Y*f_Y + w_N*f_N = 1."""
+    w_y = max(0.0, min(1.0, weight_yes))
+    w_n = 1.0 - w_y
+    f_y = 1.0 / (w_y + w_n * (1.0 + diff)) if (w_y + w_n * (1.0 + diff)) else 1.0
+    return {"Y": f_y, "N": f_y * (1.0 + diff)}
 
 
 @dataclass
@@ -107,7 +114,8 @@ class DistributionAssumptions:
 
 @dataclass
 class TerminationAssumptions:
-    base_lapse: dict[str, list[float]]       # uw class -> lapse rate by duration
+    base_lapse: list[float]                   # OE/GI ("other") lapse rate by duration
+    uw_lapse_factor: list[float]              # UW lapse = base_lapse * this, by duration
     state_factors: dict[str, float]          # state -> lapse factor
     mort_age: list[int]
     mort_qx: list[float]

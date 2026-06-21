@@ -58,8 +58,10 @@ def aggregate_cells(state: str, results: list[CellResult], asm: AssumptionSet) -
     for res in results:
         _add_weighted(acc, res, res.weight)
     series, metrics = _finalise(acc, asm)
+    # the rerate vector is identical across cells in a state; surface it
+    rerates = list(results[0].projection.series["rerate_used"]) if results else []
     return StateResult(
-        state=state, series=series, cells=results,
+        state=state, series=series, cells=results, rerates=rerates,
         irr=metrics["irr"], lifetime_lr=metrics["lifetime_lr"],
         npv_pretax=metrics["npv_pretax"], npv_premium=metrics["npv_premium"],
     )

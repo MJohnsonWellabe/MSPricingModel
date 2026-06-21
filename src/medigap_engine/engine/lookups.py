@@ -4,18 +4,17 @@ These translate the workbook's INDEX/MATCH/SUMIFS lookups into plain functions.
 """
 from __future__ import annotations
 
-from ..models.assumptions import AssumptionSet
+from ..models.assumptions import AssumptionSet, derive_two_level
 
 
 def base_claim_cost(asm: AssumptionSet, gender: str, attained_age: int, plan: str) -> float:
-    """Workbook M column: INDEX into the gender base-cost table by attained age and
-    plan. Ages outside the table clamp to the nearest end; intermediate ages use
-    the nearest age at or below (the table is already age-by-age)."""
+    """Workbook M column: base claim cost by attained age and plan from the single
+    reference-gender table, scaled by the gender claim-cost factor. Ages outside the
+    table clamp to the nearest end; intermediate ages use the nearest age at or below."""
     morb = asm.morbidity
     ages = morb.ages
-    table = morb.base_cc(gender)[plan]
+    table = morb.base_cc[plan]
     a = max(ages[0], min(attained_age, ages[-1]))
-    # exact, else nearest age at or below
     if a in ages:
         idx = ages.index(a)
     else:
@@ -23,16 +22,19 @@ def base_claim_cost(asm: AssumptionSet, gender: str, attained_age: int, plan: st
         for i, ag in enumerate(ages):
             if ag <= a:
                 idx = i
-    return table[idx]
+    return table[idx] * morb.gender_cc_factor.get(gender, 1.0)
 
 
 def claim_class_factors(asm: AssumptionSet, uw_class: str, preferred: str, hhd: str) -> float:
-    """Workbook M column tail: preferred factor (applied only for UW class) times
-    the household-discount factor (always applied)."""
+    """Preferred factor (applied only for UW class) times the household-discount
+    factor. Both are derived from a differential and the distribution mix so the
+    weighted mean is 1 (the base claim cost already carries the blend)."""
     morb = asm.morbidity
-    pref = morb.preferred_factor.get(preferred, 1.0) if uw_class == "UW" else 1.0
-    hhd_f = morb.hhd_factor.get(hhd, 1.0)
-    return pref * hhd_f
+    dist = asm.distribution
+    pref_f = derive_two_level(dist.preferred.get("Y", 0.5), morb.preferred_diff)
+    hhd_f = derive_two_level(dist.hhd.get("Y", 0.5), morb.hhd_diff)
+    pref = pref_f.get(preferred, 1.0) if uw_class == "UW" else 1.0
+    return pref * hhd_f.get(hhd, 1.0)
 
 
 def selection_factor(asm: AssumptionSet, issue_age: int, uw_class: str, duration: int) -> float:
@@ -54,9 +56,14 @@ def selection_factor(asm: AssumptionSet, issue_age: int, uw_class: str, duration
 
 
 def lapse_rate(asm: AssumptionSet, uw_class: str, duration: int) -> float:
-    table = asm.termination.base_lapse.get(uw_class) or asm.termination.base_lapse["UW"]
-    d = min(duration, len(table)) - 1
-    return table[d]
+    """Base (OE/GI) lapse by duration, scaled by the UW factor for UW business."""
+    term = asm.termination
+    d = min(duration, len(term.base_lapse)) - 1
+    base = term.base_lapse[d]
+    if uw_class == "UW":
+        fi = min(duration, len(term.uw_lapse_factor)) - 1
+        return base * term.uw_lapse_factor[fi]
+    return base
 
 
 def trend_year(asm: AssumptionSet, duration: int) -> float:

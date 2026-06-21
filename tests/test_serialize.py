@@ -12,7 +12,10 @@ def test_round_trip_equains():
     b = assumptions_from_dict(json.loads(text))
     assert b.other.discount_rate == a.other.discount_rate
     assert b.morbidity.ages == a.morbidity.ages
-    assert b.morbidity.base_cc_male == a.morbidity.base_cc_male
+    assert b.morbidity.base_cc == a.morbidity.base_cc
+    assert b.morbidity.gender_cc_factor == a.morbidity.gender_cc_factor
+    assert b.morbidity.preferred_diff == a.morbidity.preferred_diff
+    assert b.termination.uw_lapse_factor == a.termination.uw_lapse_factor
     assert b.termination.base_lapse == a.termination.base_lapse
     assert b.rerates.antiselection_lambda_claims == a.rerates.antiselection_lambda_claims
     assert b.rerates.antiselection_lambda_lapse == a.rerates.antiselection_lambda_lapse
@@ -35,7 +38,7 @@ def test_default_assumptions_load_sane():
         assert abs(sum(dim.values()) - 1.0) < 1e-4
     assert a.rerates.max_rerate == 0.20
     assert a.rerates.consecutive_z == 0.15
-    assert a.rerates.consecutive_b == 3
+    assert a.rerates.consecutive_b == 5
     assert a.rerates.antiselection_lambda_claims == 0.5
     assert a.rerates.antiselection_lambda_lapse == 0.5
     assert a.morbidity.trend_first_year_exponent == 1.75

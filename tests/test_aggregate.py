@@ -22,6 +22,14 @@ def test_aggregate_lifetime_lr_from_aggregated_dollars(asm, cells, base_sens):
     assert abs(agg.lifetime_lr - cum_c / cum_p) < 1e-9
 
 
+def test_aggregate_carries_rerate_vector(asm, cells, base_sens):
+    rerates = [0.0, 0.1] + [0.05] * 28
+    results = [project_cell(c, asm, base_sens, "All", rerates) for c in cells[:5]]
+    agg = aggregate_cells("All", results, asm)
+    assert agg.rerates[:3] == rerates[:3]
+    assert len(agg.rerates) == len(rerates)
+
+
 def test_aggregate_states_combines(asm, cells, base_sens):
     subset = cells[:10]
     rerates = list(asm.rerates.specified_rerates)

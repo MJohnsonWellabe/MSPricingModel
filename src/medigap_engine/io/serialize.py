@@ -21,13 +21,13 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
     morbidity = MorbidityAssumptions(
         ages=list(m["ages"]),
         plans=list(m["plans"]),
-        base_cc_male={k: list(v) for k, v in m["base_cc_male"].items()},
-        base_cc_female={k: list(v) for k, v in m["base_cc_female"].items()},
+        base_cc={k: list(v) for k, v in m["base_cc"].items()},
+        gender_cc_factor={k: float(v) for k, v in m["gender_cc_factor"].items()},
         state_factors=dict(m["state_factors"]),
         selection_factors=[dict(r) for r in m["selection_factors"]],
         cc_aging_by_duration=list(m["cc_aging_by_duration"]),
-        preferred_factor=dict(m["preferred_factor"]),
-        hhd_factor=dict(m["hhd_factor"]),
+        preferred_diff=float(m["preferred_diff"]),
+        hhd_diff=float(m["hhd_diff"]),
         trend_by_year=list(m["trend_by_year"]),
         trend_first_year_exponent=float(m.get("trend_first_year_exponent", 1.75)),
     )
@@ -69,7 +69,8 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
     )
     t = d["termination"]
     termination = TerminationAssumptions(
-        base_lapse={k: list(v) for k, v in t["base_lapse"].items()},
+        base_lapse=list(t["base_lapse"]),
+        uw_lapse_factor=list(t["uw_lapse_factor"]),
         state_factors=dict(t["state_factors"]),
         mort_age=list(t["mort_age"]),
         mort_qx=list(t["mort_qx"]),
@@ -103,10 +104,10 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
         "schema_version": a.schema_version,
         "morbidity": {
             "ages": m.ages, "plans": m.plans,
-            "base_cc_male": m.base_cc_male, "base_cc_female": m.base_cc_female,
+            "base_cc": m.base_cc, "gender_cc_factor": m.gender_cc_factor,
             "state_factors": m.state_factors, "selection_factors": m.selection_factors,
             "cc_aging_by_duration": m.cc_aging_by_duration,
-            "preferred_factor": m.preferred_factor, "hhd_factor": m.hhd_factor,
+            "preferred_diff": m.preferred_diff, "hhd_diff": m.hhd_diff,
             "trend_by_year": m.trend_by_year,
             "trend_first_year_exponent": m.trend_first_year_exponent,
         },
@@ -131,7 +132,8 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
             "uw": dist.uw, "preferred": dist.preferred, "hhd": dist.hhd,
         },
         "termination": {
-            "base_lapse": t.base_lapse, "state_factors": t.state_factors,
+            "base_lapse": t.base_lapse, "uw_lapse_factor": t.uw_lapse_factor,
+            "state_factors": t.state_factors,
             "mort_age": t.mort_age, "mort_qx": t.mort_qx,
             "dur2_scaling": t.dur2_scaling, "dur3plus_scaling": t.dur3plus_scaling,
         },
