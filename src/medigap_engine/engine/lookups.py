@@ -35,6 +35,12 @@ def premium_for_cell(asm: AssumptionSet, key, state: str) -> float:
     forward to the pricing period by the one-time premium pull-forward (same window
     as the claims pull-forward)."""
     p = asm.premium
+    # exact per-cell premium (already at the pricing level), if provided
+    cp = p.cell_premiums.get(key.label())
+    if cp:
+        v = cp.get(state, cp.get("All"))
+        if v is not None:
+            return float(v)
     dist = asm.distribution
     base = p.base_for_age(key.issue_age)
     plan_f = p.plan_rel.get(key.plan, 1.0)
@@ -54,8 +60,10 @@ def claim_class_factors(asm: AssumptionSet, uw_class: str, preferred: str, hhd: 
     weighted mean is 1 (the base claim cost already carries the blend)."""
     morb = asm.morbidity
     dist = asm.distribution
-    pref_f = derive_two_level(dist.preferred.get("Y", 0.5), morb.preferred_diff)
-    hhd_f = derive_two_level(dist.hhd.get("Y", 0.5), morb.hhd_diff)
+    # raw factors (workbook) take precedence over mix-normalised derivation
+    pref_f = morb.preferred_factors or derive_two_level(dist.preferred.get("Y", 0.5),
+                                                        morb.preferred_diff)
+    hhd_f = morb.hhd_factors or derive_two_level(dist.hhd.get("Y", 0.5), morb.hhd_diff)
     pref = pref_f.get(preferred, 1.0) if uw_class == "UW" else 1.0
     return pref * hhd_f.get(hhd, 1.0)
 

@@ -84,3 +84,10 @@ in the app).
 python tools/generate_seed.py    path/to/MS_Pricing_By_State_2026AEP_v5.xlsm.xlsx
 python tools/extract_samples.py  path/to/MS_Pricing_By_State_2026AEP_v5.xlsm.xlsx [claims_cap]
 ```
+
+`generate_seed.py` emits a joint plan×issue-age×UW distribution grid, exact per-cell
+premiums, raw preferred/HHD claim factors and the morbidity state factor, so the engine
+reproduces the workbook's per-state Aggregate Model. Validate a state with
+`tools/compare_tx.py path/to/workbook.xlsx TX` (run with solving off — the workbook uses
+its specified rerate schedule). See HANDOFF.md §8b. The regression guard is
+`tests/test_tx_validation.py`.

@@ -43,6 +43,8 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
         preferred_diff=float(m["preferred_diff"]),
         hhd_diff=float(m["hhd_diff"]),
         trend_by_year=list(m["trend_by_year"]),
+        preferred_factors={str(k): float(v) for k, v in m.get("preferred_factors", {}).items()},
+        hhd_factors={str(k): float(v) for k, v in m.get("hhd_factors", {}).items()},
     )
     r = d["rerates"]
     rerates = RerateAssumptions(
@@ -70,6 +72,8 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
         preferred_diff=float(p["preferred_diff"]),
         hhd_diff=float(p["hhd_diff"]),
         state_factor={k: float(v) for k, v in p["state_factor"].items()},
+        cell_premiums={str(k): {str(s): float(x) for s, x in v.items()}
+                       for k, v in p.get("cell_premiums", {}).items()},
     )
     if "pull_forward" in d:
         pf = d["pull_forward"]
@@ -149,12 +153,14 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
             "cc_aging_by_duration": m.cc_aging_by_duration,
             "preferred_diff": m.preferred_diff, "hhd_diff": m.hhd_diff,
             "trend_by_year": m.trend_by_year,
+            "preferred_factors": m.preferred_factors, "hhd_factors": m.hhd_factors,
         },
         "premium": {
             "base_by_issue_age": p.base_by_issue_age,
             "plan_rel": p.plan_rel, "uw_rel": p.uw_rel,
             "gender_diff": p.gender_diff, "preferred_diff": p.preferred_diff,
             "hhd_diff": p.hhd_diff, "state_factor": p.state_factor,
+            "cell_premiums": p.cell_premiums,
         },
         "rerates": {
             "solve": r.solve, "specified_rerates": r.specified_rerates,

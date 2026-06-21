@@ -5,6 +5,7 @@ from medigap_engine.models.cell import CellKey
 
 
 def test_premium_is_factor_product(asm):
+    asm.premium.cell_premiums = {}   # exercise the factor-model fallback (no per-cell premium)
     p = asm.premium
     d = asm.distribution
     key = CellKey(65, "M", "G", "OE", "N", "N")
@@ -17,21 +18,22 @@ def test_premium_is_factor_product(asm):
         * normalized_factors(p.uw_rel, d.uw)["OE"]
         * normalized_factors({"N": 1 + p.preferred_diff, "Y": 1.0}, d.preferred)["N"]
         * normalized_factors({"N": 1 + p.hhd_diff, "Y": 1.0}, d.hhd)["N"]
-        * p.state_factor["IA"]
+        * p.state_factor.get("All", 1.0)
         * bring_forward
     )
-    assert abs(L.premium_for_cell(asm, key, "IA") - expected) < 1e-9
+    assert abs(L.premium_for_cell(asm, key, "All") - expected) < 1e-9
 
 
 def test_premium_pull_forward_brings_forward(asm):
+    asm.premium.cell_premiums = {}   # the factor model applies the premium pull-forward
     key = CellKey(65, "M", "G", "OE", "N", "N")
     import copy
     exp = asm.pull_forward.duration
     untrended = copy.deepcopy(asm)
     untrended.pull_forward.premium_trend = 0.0
-    base = L.premium_for_cell(untrended, key, "IA")
+    base = L.premium_for_cell(untrended, key, "All")
     asm.pull_forward.premium_trend = 0.05
-    trended = L.premium_for_cell(asm, key, "IA")
+    trended = L.premium_for_cell(asm, key, "All")
     assert abs(trended - base * (1.05) ** exp) < 1e-9
 
 
@@ -58,14 +60,16 @@ def test_distribution_dimensions_sum_to_one(asm):
         assert abs(sum(dim.values()) - 1.0) < 1e-4
 
 
-def test_default_grid_is_separable(asm):
-    # the bundled defaults migrate to a separable joint grid, so a cell weight
-    # still equals the product of the derived marginals (within float drift)
+def test_default_grid_weight_from_grid(asm):
+    # the bundled default is a real joint plan x age x UW grid (from the workbook
+    # cell weights); a cell weight is that grid cell x gender x preferred x hhd
     d = asm.distribution
     key = CellKey(73, "F", "N", "OE", "Y", "N")
-    expected = (d.by_issue_age[73] * d.gender["F"] * d.plan["N"]
-                * d.uw["OE"] * d.preferred["Y"] * d.hhd["N"])
-    assert abs(d.weight(key) - expected) < 1e-8
+    jw = d.joint["N"]["73"]["OE"]
+    expected = jw * d.gender["F"] * d.preferred["Y"] * d.hhd["N"]
+    assert abs(d.weight(key) - expected) < 1e-12
+    total = sum(w for ages in d.joint.values() for uws in ages.values() for w in uws.values())
+    assert abs(total - 1.0) < 1e-4
 
 
 def test_non_separable_joint_grid(asm):

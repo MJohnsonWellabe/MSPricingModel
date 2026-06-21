@@ -128,6 +128,18 @@ parsed against a strict whitelist (arithmetic, comparisons, `if/else`, and the h
 before a run. Loss ratio, IRR and NPV remain derived metrics. Defaults reproduce the
 workbook math exactly.
 
+### Matching the source workbook exactly (per-cell inputs)
+The assumptions can be regenerated from the source Excel workbook
+(`tools/generate_seed.py`). To reproduce the workbook's per-state Aggregate Model
+exactly, three inputs override the factor approximations when present: **per-cell
+premiums** (used verbatim, no premium pull-forward — the entered premium is already
+the pricing rate), **raw preferred/HHD claim factors** (the workbook's AT/AU columns;
+preferred applies for the UW class only), and the **morbidity state factor** (a
+per-run scalar). Claims antiselection is `P = (1+aging)·P + 0.5·(rerate − trend)`;
+the lapse has no antiselective load. The distribution is a joint plan × issue-age ×
+UW grid. To match the workbook, run with **solving off** (the workbook uses its
+specified rerate schedule); other states keep solving on by default.
+
 ### Full model export / import
 The Configuration tab can download and upload a single JSON capturing the **entire
 model** — assumptions, sensitivities, state scope, solve toggle and formulas. Pricing

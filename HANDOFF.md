@@ -53,6 +53,8 @@ src/medigap_engine/        Pure-Python engine (unit tested)
     run.py                   run / run_state orchestration; normalize_weights
   io/
     serialize.py             assumptions (de)serialise + legacy migration + formula (de)serialise
+    excel_export.py          assumptions -> multi-sheet .xlsx (lazy openpyxl)
+    excel_import.py          .xlsx -> assumptions dict (inverse of excel_export)
     model_io.py              FULL model export/import (assumptions+sens+config+formulas)
     defaults.py              bundled-seed loaders, build_cells(asm), available_states()
     tables.py                Excel-paste TSV<->array helpers
@@ -154,6 +156,35 @@ one JSON (schema-versioned). Download/Upload buttons live on the **Configuration
 model and re-running reproduces results exactly (covered by `tests/test_model_io.py`). There is also
 an assumptions-only JSON on the Assumptions tab.
 
+## 8b. Distribution joint grid, exact per-cell inputs & TX calibration
+The defaults are **regenerated from the source workbook** by `tools/generate_seed.py`
+(`python tools/generate_seed.py /path/to/workbook.xlsx`). To reproduce the workbook's TX
+**Aggregate Model** exactly, the model carries a few *exact* (non-factor) inputs that override
+the approximations when present:
+- **Distribution** is a JOINT `plan × issue-age × UW` weight grid (`DistributionAssumptions.joint`,
+  schema_version `2`) built from the real per-cell weights; gender/preferred/HHD stay marginal.
+  `plan`/`by_issue_age`/`uw` are derived marginal **properties**, so the engine hot path is unchanged.
+- **Per-cell premiums** (`PremiumAssumptions.cell_premiums`: cell-label → state → premium, from the
+  Input sheet) are used verbatim by `lookups.premium_for_cell` (no pull-forward); the factor model is
+  the fallback for cells/states not present. **Premium pull-forward is off** (`premium_trend=0`) since
+  the Input premium is already the pricing rate.
+- **Raw claim class factors** (`morbidity.preferred_factors`/`hhd_factors`, the workbook AT/AU columns)
+  override the mix-normalised `derive_two_level` in `lookups.claim_class_factors` (preferred applied for
+  UW class only).
+- **Morbidity state factor** = the per-run scalar `Input!Z1` (TX ≈ 0.896), set as
+  `morbidity.state_factors["TX"]`.
+- **Antiselection**: claims `P = (1+aging)·P_{d-1} + 0.5·(rerate−trend)` (λ_claims=0.5); the workbook
+  **lapse has no antiselective load** (λ_lapse=0). Termination dur2/dur3 scaling (×1.05/×1.10) is real.
+- **TX matches with solving OFF** (the workbook uses its specified rerate schedule). The default keeps
+  `solve=True` so every other state still prices; turn solve off to validate TX.
+
+Status (`tests/test_tx_validation.py`, harness `tools/compare_tx.py`): **lives, earned premium and the
+expense lines match exactly**; **claims match at duration 1** and track within ~15% mid-duration — a
+small per-cell base-cost mix drift is still under investigation (needs the per-cell `Output` sheet).
+The assumptions `.xlsx` artifact for Excel mapping is `docs/tx_assumptions.xlsx` (note: the `.xlsx`
+export does **not** carry `cell_premiums`/raw factors — those live in the workbook's Input/Assumptions
+sheets). Excel up/download of assumptions: `io/excel_export.py` ↔ `io/excel_import.py`.
+
 ## 9. UI tabs
 Configuration (scope, sensitivities, solve toggle, **full model export/import**, Run) ·
 Experience Study (sales→distribution/premium, claims→morbidity, **editable suggested differentials**,
@@ -165,8 +196,10 @@ trend & rerates) · Sensitivity (stochastic IRR table + altair histogram) · Doc
 duplicate auto-IDs raise `StreamlitDuplicateElementId`; keep new widgets keyed.
 
 ## 10. Conventions & constraints (carry these forward)
+- **Always update the docs/`.md` files (this HANDOFF, `README.md`, the in-app Documentation tab) on
+  every change** — owner's standing instruction.
 - Develop on `claude/word-document-prompt-plan-5o6lus`; create it if missing. Pushing to `main` was
-  explicitly authorised this engagement — re-confirm before relying on it.
+  explicitly authorised this engagement (owner: "always push to main") — re-confirm before relying on it.
 - End commit messages with the harness-provided `Co-Authored-By:` and `Claude-Session:` footers.
 - Do **not** put any model identifier in commits/PRs/code/artifacts.
 - Do **not** open PRs unless explicitly asked.

@@ -50,6 +50,6 @@ def test_solver_respects_max_rerate(asm, cells, base_sens):
 
 def test_target_met_without_rerate_uses_trend_tail(asm, cells, base_sens):
     # a very high target is trivially met -> no front-loading
-    asm.rerates.target_lifetime_lr = 0.99
+    asm.rerates.target_lifetime_lr = 5.0
     vec, info = solve_rerates(cells, asm, base_sens, "FL")
     assert info["status"] == "target_met_without_rerate"

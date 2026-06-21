@@ -44,11 +44,11 @@ def test_default_assumptions_load_sane():
     assert a.rerates.consecutive_z == 0.15
     assert a.rerates.consecutive_b == 5
     assert a.rerates.antiselection_lambda_claims == 0.5
-    assert a.rerates.antiselection_lambda_lapse == 0.5
+    assert a.rerates.antiselection_lambda_lapse == 0.0   # workbook lapse has no antiselective load
     assert a.rerates.target_lifetime_lr == 0.78
     assert a.rerates.in_year_lr_floor == 0.65
     assert a.pull_forward.duration == 1.75
-    assert a.pull_forward.premium_trend == 0.05
+    assert a.pull_forward.premium_trend == 0.0   # Input premium is already the pricing rate
 
 
 def test_legacy_assumptions_migrate_pull_forward():

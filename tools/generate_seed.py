@@ -90,12 +90,16 @@ def build_assumptions(A) -> dict:
                  for i in range(len(oe_lapse))]
 
     trend_by_year = [_rnd(c("G", r), 4) for r in range(3, 33)]
+    # raw preferred (AT) / hhd (AU) claim factors keyed by class level (AS)
+    pref_factors = {str(c("AS", r)): _rnd(c("AT", r), 8) for r in (4, 5)}
+    hhd_factors = {str(c("AS", r)): _rnd(c("AU", r), 8) for r in (4, 5)}
     return {
-        "schema_version": "1",
+        "schema_version": "2",
         "pull_forward": {
             "duration": 1.75,
             "claims_trend": trend_by_year[0],
-            "premium_trend": 0.05,
+            # the Input premium is already the pricing rate -> no premium pull-forward
+            "premium_trend": 0.0,
         },
         "morbidity": {
             "ages": ages, "plans": PLANS,
@@ -108,8 +112,12 @@ def build_assumptions(A) -> dict:
             "preferred_diff": round(pref_n / pref_y - 1, 6),
             "hhd_diff": round(hhd_n / hhd_y - 1, 6),
             "trend_by_year": trend_by_year,
+            "preferred_factors": pref_factors,
+            "hhd_factors": hhd_factors,
         },
         "rerates": {
+            # default to solving so every state prices sensibly; the TX validation
+            # turns solve OFF to use the workbook's specified rerate schedule (col F)
             "solve": True,
             "specified_rerates": [_rnd(c("F", r), 4) for r in range(3, 33)],
             "aging_rerate_by_age_ages": [int(c("AI", r)) for r in range(3, 39)],
@@ -117,7 +125,9 @@ def build_assumptions(A) -> dict:
             "target_lifetime_lr": 0.78, "target_irr": 0.15,
             "max_rerate": 0.20, "in_year_lr_floor": 0.65,
             "consecutive_z": 0.15, "consecutive_b": 5,
-            "antiselection_lambda_claims": 0.5, "antiselection_lambda_lapse": 0.5,
+            # claims antiselection P = (1+aging)P + 0.5*(rerate-trend); the workbook
+            # lapse has no antiselective load, so the lapse lambda is zero
+            "antiselection_lambda_claims": 0.5, "antiselection_lambda_lapse": 0.0,
         },
         # "premium" and "distribution" are factor models derived from the cell
         # universe; see build_factor_blocks() and main().
@@ -177,8 +187,6 @@ def build_factor_blocks(cells: list) -> tuple[dict, dict]:
     import math
     from collections import defaultdict
 
-    dims = {"issue_age": "issue_age", "gender": "gender", "plan": "plan",
-            "uw": "uw", "preferred": "preferred", "hhd": "hhd"}
     logs = [math.log(c["premium"]) for c in cells if c["premium"] > 0]
     mu = sum(logs) / len(logs)
 
@@ -236,15 +244,57 @@ def build_factor_blocks(cells: list) -> tuple[dict, dict]:
     return premium, distribution
 
 
+def build_joint_distribution(cells: list) -> dict:
+    """Joint plan x issue-age x UW weight grid from the per-cell weights (summing
+    over gender/preferred/hhd), plus the gender/preferred/hhd marginals. Captures
+    the non-separable plan/age/UW mix the workbook actually has."""
+    from collections import defaultdict
+
+    tot = sum(c["weight"] for c in cells) or 1.0
+    joint: dict = {}
+    for c in cells:
+        ages = joint.setdefault(str(c["plan"]), {}).setdefault(str(int(c["issue_age"])), {})
+        ages[str(c["uw"])] = round(ages.get(str(c["uw"]), 0.0) + c["weight"] / tot, 8)
+
+    def marg(field):
+        g = defaultdict(float)
+        for c in cells:
+            g[c[field]] += c["weight"] / tot
+        return {k: round(v, 8) for k, v in g.items()}
+
+    return {"joint": joint, "gender": marg("gender"),
+            "preferred": marg("preferred"), "hhd": marg("hhd")}
+
+
+def build_cell_premiums(cells: list) -> dict:
+    """Exact per-cell premiums (cell label -> state -> premium) straight from Input."""
+    out = {}
+    for c in cells:
+        label = (f"{c['issue_age']}{c['gender']}-{c['plan']}-{c['uw']}"
+                 f"-P{c['preferred']}-H{c['hhd']}")
+        sp = dict(c.get("state_premiums", {}))
+        sp.setdefault("All", c["premium"])
+        out[label] = {s: round(float(v), 6) for s, v in sp.items()}
+    return out
+
+
 def main(path: str) -> None:
-    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    wb = openpyxl.load_workbook(path, data_only=True)
     assumptions = build_assumptions(wb["Assumptions"])
     cells = build_cells(wb["Input"])
+    # morbidity state factor is the per-run scalar Input!Z1 (claims x StateFactor)
+    z1 = wb["Input"]["Z1"].value
     wb.close()
 
     premium, distribution = build_factor_blocks(cells)
+    # exact per-cell premiums + true joint distribution grid override the factor model
+    premium["cell_premiums"] = build_cell_premiums(cells)
     assumptions["premium"] = premium
+    distribution = build_joint_distribution(cells)
     assumptions["distribution"] = distribution
+    if isinstance(z1, (int, float)):
+        assumptions["morbidity"]["state_factors"]["TX"] = round(float(z1), 8)
+        assumptions["morbidity"]["state_factors"].setdefault("All", 1.0)
 
     # convert morbidity base_cc (female) -> gender blend, and termination base_lapse
     # (OE) -> uw-mix blend, now that the distribution mix is known
@@ -254,7 +304,13 @@ def main(path: str) -> None:
     gblend = sum(gmix.get(g, 0.0) * g_rel[g] for g in g_rel)
     m["base_cc"] = {pl: [round(v * gblend, 4) for v in m["base_cc"][pl]] for pl in m["base_cc"]}
     t = assumptions["termination"]
-    w_uw = distribution["uw"].get("UW", 0.0)
+    # uw marginal from the joint grid (sum over plan, age)
+    uw_marg: dict = {}
+    for ages in distribution["joint"].values():
+        for uws in ages.values():
+            for u, w in uws.items():
+                uw_marg[u] = uw_marg.get(u, 0.0) + w
+    w_uw = uw_marg.get("UW", 0.0)
     w_other = 1.0 - w_uw
     t["base_lapse"] = [round(t["base_lapse"][i] * (w_uw * t["uw_lapse_rel"][i] + w_other), 6)
                        for i in range(len(t["base_lapse"]))]

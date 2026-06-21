@@ -39,6 +39,12 @@ class MorbidityAssumptions:
     preferred_diff: float                    # claims: 'no preferred' exceeds 'preferred' by this %
     hhd_diff: float                          # claims: 'no hhd' exceeds 'hhd' by this %
     trend_by_year: list[float]               # claims trend by duration year (projection trend)
+    # optional RAW preferred/hhd claim factors keyed by level (Y/N). When present,
+    # claim_class_factors uses them verbatim (preferred applied for UW class only)
+    # instead of deriving normalised factors from the diffs; lets the engine match a
+    # source workbook's raw factors exactly. Empty -> use the *_diff fields.
+    preferred_factors: dict = field(default_factory=dict)
+    hhd_factors: dict = field(default_factory=dict)
 
 
 def normalized_factors(rel: dict, weights: dict) -> dict:
@@ -110,6 +116,11 @@ class PremiumAssumptions:
     preferred_diff: float                    # premium: non-preferred this % above preferred
     hhd_diff: float                          # premium: non-hhd this % above hhd
     state_factor: dict[str, float]
+    # optional exact per-cell premiums (cell label -> state -> annual premium). When a
+    # cell+state is present here, lookups.premium_for_cell uses it verbatim (already at
+    # the pricing level, no pull-forward) instead of the factor model. Lets the engine
+    # reproduce a source workbook's per-cell rates exactly; empty by default.
+    cell_premiums: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def base_for_age(self, issue_age: int) -> float:
         base = self.base_by_issue_age.get(issue_age)
