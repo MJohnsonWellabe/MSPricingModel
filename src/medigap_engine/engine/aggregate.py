@@ -10,8 +10,10 @@ from ..models.assumptions import AssumptionSet, PROJECTION_YEARS
 from ..models.results import CellResult, RunResult, StateResult
 from .metrics import irr, npv
 
-# Series that are additive dollar amounts (safe to weight-and-sum).
+# Additive series safe to weight-and-sum: dollar line items plus inforce lives
+# (lives is per policy issued, the book being normalised to weights summing to 1).
 _DOLLAR_SERIES = (
+    "lives",
     "earned_prem", "ibnr", "nii", "claims", "commission", "premium_tax",
     "oper_acq", "marketing", "maintenance", "pretax_income", "tax", "at_income",
     "rbc", "int_on_rbc", "tax_on_int", "ah_cashflow",

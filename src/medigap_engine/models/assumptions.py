@@ -121,21 +121,47 @@ class PremiumAssumptions:
 
 @dataclass
 class DistributionAssumptions:
-    """Distribution as independent per-dimension weight factors. Each dimension's
-    weights sum to 1; a cell's weight is the product across dimensions."""
-    by_issue_age: dict[int, float]
+    """Distribution as a JOINT plan x issue-age x UW weight grid (these vary
+    together and are not separable) with independent gender / preferred / HHD
+    marginals applied on top. The grid weights sum to 1 across all
+    (plan, age, uw); each marginal sums to 1. A cell's weight is
+    ``grid[plan][age][uw] * gender * preferred * hhd``.
+
+    ``plan`` / ``by_issue_age`` / ``uw`` are exposed as derived marginal
+    properties (sums over the grid) so factor-normalisation and cell enumeration
+    keep using a per-dimension mix."""
+    joint: dict[str, dict[str, dict[str, float]]]   # plan -> age(str) -> uw -> weight
     gender: dict[str, float]
-    plan: dict[str, float]
-    uw: dict[str, float]
     preferred: dict[str, float]
     hhd: dict[str, float]
 
+    @property
+    def plan(self) -> dict[str, float]:
+        return {pl: sum(w for uws in ages.values() for w in uws.values())
+                for pl, ages in self.joint.items()}
+
+    @property
+    def by_issue_age(self) -> dict[int, float]:
+        out: dict[int, float] = {}
+        for ages in self.joint.values():
+            for a, uws in ages.items():
+                out[int(a)] = out.get(int(a), 0.0) + sum(uws.values())
+        return dict(sorted(out.items()))
+
+    @property
+    def uw(self) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for ages in self.joint.values():
+            for uws in ages.values():
+                for u, w in uws.items():
+                    out[u] = out.get(u, 0.0) + w
+        return out
+
     def weight(self, key) -> float:
+        jw = self.joint.get(key.plan, {}).get(str(key.issue_age), {}).get(key.uw_class, 0.0)
         return (
-            self.by_issue_age.get(key.issue_age, 0.0)
+            jw
             * self.gender.get(key.gender, 0.0)
-            * self.plan.get(key.plan, 0.0)
-            * self.uw.get(key.uw_class, 0.0)
             * self.preferred.get(key.preferred, 0.0)
             * self.hhd.get(key.hhd, 0.0)
         )

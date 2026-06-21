@@ -77,7 +77,9 @@ def _sales_section() -> None:
     p = suggested.premium
 
     st.markdown("#### Suggested distribution weight factors")
-    st.caption("Per-dimension marginal weights (each sums to 1); a cell's weight is their product.")
+    st.caption("Adopt fits a joint plan × issue-age × UW grid from the data plus "
+               "gender / preferred / HHD marginals. The marginal summaries below are "
+               "derived from that grid for reference.")
     st.markdown("**By issue age**")
     st.dataframe(_factor_df(d.by_issue_age, "Weight"), use_container_width=True)
     cols = st.columns(3)

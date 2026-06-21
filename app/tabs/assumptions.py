@@ -11,6 +11,7 @@ from app.state import (
     assumptions_xlsx,
     get_assumptions,
     load_assumptions_json,
+    load_assumptions_xlsx,
     reset_assumptions,
 )
 from medigap_engine.models.assumptions import PROJECTION_YEARS
@@ -50,10 +51,17 @@ def render() -> None:
             reset_assumptions()
             st.rerun()
     with top[3]:
-        up = st.file_uploader("Upload assumptions JSON", type=["json"], key="asm_upload")
+        up = st.file_uploader("Upload assumptions (JSON or Excel)", type=["json", "xlsx"],
+                              key="asm_upload")
         if up is not None:
-            load_assumptions_json(up.getvalue().decode("utf-8"))
-            st.success("Assumptions loaded.")
+            try:
+                if up.name.lower().endswith(".xlsx"):
+                    load_assumptions_xlsx(up.getvalue())
+                else:
+                    load_assumptions_json(up.getvalue().decode("utf-8"))
+                st.success("Assumptions loaded.")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Could not load assumptions: {exc}")
 
     asm = get_assumptions()
     sub = st.tabs([
@@ -246,26 +254,53 @@ def _premium(asm) -> None:
 
 def _distribution(asm) -> None:
     d = asm.distribution
-    st.subheader("Distribution weight factors")
-    st.caption("Each dimension's weights should sum to 1; a cell's weight is the "
-               "product across dimensions. Re-normalised at run time.")
+    st.subheader("Distribution weight grid")
+    st.caption(
+        "Plan × issue age × UW is a single **joint** weight grid (the mix varies "
+        "together and is not separable). Gender, preferred and household-discount are "
+        "independent marginals applied on top. The whole grid and each marginal should "
+        "sum to 1; a cell's weight is grid[plan, age, uw] × gender × preferred × hhd "
+        "(re-normalised at run time)."
+    )
+    plans = list(d.joint)
+    ages = sorted(d.by_issue_age)
+    uws = list(d.uw)
+    grand = 0.0
+    for pl in plans:
+        st.markdown(f"**Plan {pl}** — weight by issue age (rows) × UW class (columns)")
+        grid = d.joint.setdefault(pl, {})
+        df = pd.DataFrame(
+            {u: [float(grid.get(str(a), {}).get(u, 0.0)) for a in ages] for u in uws},
+            index=ages)
+        ed = st.data_editor(
+            df, use_container_width=True, key=f"dist_grid_{pl}",
+            column_config={u: st.column_config.NumberColumn(format="%.5f") for u in uws})
+        sub = 0.0
+        for u in uws:
+            col = ed[u].tolist()
+            for i, a in enumerate(ages):
+                w = float(col[i])
+                grid.setdefault(str(a), {})[u] = w
+                sub += w
+        grand += sub
+        st.caption(f"Plan {pl} subtotal: {sub:.4f}")
+    st.caption(f"**Grid total across all plans: {grand:.4f}** (should be ~1.0)")
 
-    def _dim(label, mapping, key):
+    def _marg(label, mapping, key):
         new = _dict_editor(mapping, "Weight", key, fmt="%.5f")
         st.caption(f"{label} sums to {sum(new.values()):.4f}")
         return new
 
-    st.markdown("**By issue age**")
-    d.by_issue_age = _dim("Issue age", d.by_issue_age, "w_age")
     cols = st.columns(3)
     with cols[0]:
-        st.markdown("**Gender**"); d.gender = _dim("Gender", d.gender, "w_gender")
-        st.markdown("**Preferred**"); d.preferred = _dim("Preferred", d.preferred, "w_pref")
+        st.markdown("**Gender**")
+        d.gender = _marg("Gender", d.gender, "w_gender")
     with cols[1]:
-        st.markdown("**Plan**"); d.plan = _dim("Plan", d.plan, "w_plan")
-        st.markdown("**HHD**"); d.hhd = _dim("HHD", d.hhd, "w_hhd")
+        st.markdown("**Preferred**")
+        d.preferred = _marg("Preferred", d.preferred, "w_pref")
     with cols[2]:
-        st.markdown("**UW**"); d.uw = _dim("UW", d.uw, "w_uw")
+        st.markdown("**HHD**")
+        d.hhd = _marg("HHD", d.hhd, "w_hhd")
 
 
 def _termination(asm) -> None:

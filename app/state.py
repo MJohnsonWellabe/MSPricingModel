@@ -8,6 +8,7 @@ config + formulas) that reproduces results exactly.
 from __future__ import annotations
 
 import copy
+import io
 import json
 
 import streamlit as st
@@ -15,6 +16,7 @@ import streamlit as st
 from medigap_engine.engine.formulas import default_formula_set
 from medigap_engine.io.defaults import build_cells, default_assumptions
 from medigap_engine.io.excel_export import assumptions_to_xlsx_bytes
+from medigap_engine.io.excel_import import assumptions_from_workbook
 from medigap_engine.io.model_io import model_from_dict, model_to_dict
 from medigap_engine.io.serialize import assumptions_from_dict, assumptions_to_dict
 from medigap_engine.models.config import RunConfig
@@ -77,6 +79,12 @@ def load_assumptions_json(text: str) -> None:
 def assumptions_xlsx() -> bytes:
     """Current assumptions as a multi-sheet Excel workbook (for download)."""
     return assumptions_to_xlsx_bytes(st.session_state.assumptions)
+
+
+def load_assumptions_xlsx(data: bytes) -> None:
+    """Load assumptions from an uploaded Excel workbook (as produced by the export)."""
+    doc = assumptions_from_workbook(io.BytesIO(data))
+    st.session_state.assumptions = assumptions_from_dict(doc)
 
 
 def model_json() -> str:

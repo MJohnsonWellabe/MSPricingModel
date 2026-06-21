@@ -170,16 +170,17 @@ def _rerates(ws, a: AssumptionSet) -> None:
 
 def _distribution(ws, a: AssumptionSet) -> None:
     d = a.distribution
-    row = 1
-    dims = [
-        ("By issue age", d.by_issue_age),
-        ("Gender", d.gender),
-        ("Plan", d.plan),
-        ("UW", d.uw),
-        ("Preferred", d.preferred),
-        ("HHD", d.hhd),
-    ]
-    for title, mapping in dims:
+    uws = list(d.uw)
+    ages = sorted(d.by_issue_age)
+    row = _title(ws, 1, "Joint distribution weight grid (plan x issue age x UW); "
+                        "gender / preferred / HHD are marginals applied on top")
+    row += 1
+    # one grid table per plan: rows = issue age, columns = UW class
+    for pl, grid in d.joint.items():
+        data = [[age, *[grid.get(str(age), {}).get(u, 0.0) for u in uws]] for age in ages]
+        row = _table(ws, row, f"Plan {pl} weight grid (issue age x UW)",
+                     ["Issue age", *uws], data)
+    for title, mapping in (("Gender", d.gender), ("Preferred", d.preferred), ("HHD", d.hhd)):
         items = sorted(mapping.items())
         rows = [[k, v] for k, v in items]
         rows.append(["Sum", sum(mapping.values())])

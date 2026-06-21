@@ -28,17 +28,23 @@ def apply_sales(asm: AssumptionSet, sales: dict) -> AssumptionSet:
     avg_premium = sales["avg_premium"]  # cell-key tuple -> average premium
     state_prem = sales["state_premiums"]
 
-    # ---- distribution: per-dimension marginal weights from counts ----
+    # ---- distribution: joint plan x issue-age x UW grid (captures the
+    # non-separable mix) plus independent gender / preferred / HHD marginals ----
     total = sum(counts.values()) or 1.0
-    for dim, idx in _DIM_INDEX.items():
-        marg = defaultdict(float)
+    if counts:
+        grid: dict[str, dict[str, dict[str, float]]] = {}
         for k, c in counts.items():
-            marg[k[idx]] += c
-        if not marg:
-            continue
-        weights = {v: round(c / total, 8) for v, c in marg.items()}
-        target = {"issue_age": "by_issue_age", "uw": "uw"}.get(dim, dim)
-        setattr(new.distribution, target, weights)
+            age, _g, plan, uw, _p, _h = k  # tuple order per _DIM_INDEX
+            ages = grid.setdefault(str(plan), {}).setdefault(str(int(age)), {})
+            ages[str(uw)] = ages.get(str(uw), 0.0) + c / total
+        new.distribution.joint = {
+            pl: {a: {u: round(w, 8) for u, w in uws.items()} for a, uws in ages.items()}
+            for pl, ages in grid.items()}
+        for dim in ("gender", "preferred", "hhd"):
+            marg = defaultdict(float)
+            for k, c in counts.items():
+                marg[k[_DIM_INDEX[dim]]] += c
+            setattr(new.distribution, dim, {v: round(c / total, 8) for v, c in marg.items()})
 
     # ---- premium: log main-effects decomposition weighted by count ----
     obs = [(k, math.log(p), counts.get(k, 0.0))

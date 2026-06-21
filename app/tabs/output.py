@@ -9,6 +9,7 @@ from medigap_engine.models.assumptions import PROJECTION_YEARS
 
 # income-statement lines shown on drill-down, in presentation order
 _INCOME_ROWS = [
+    ("lives", "Lives"),
     ("earned_prem", "Earned premium"),
     ("nii", "Net investment income"),
     ("claims", "Claims"),
@@ -59,6 +60,11 @@ def render() -> None:
     state = st.selectbox("Select a state to drill into", list(result.by_state.keys()),
                          key="out_state")
     series = result.by_state[state].series
+    st.caption(
+        "Per policy issued: the book is normalised to a starting weight of 1, so "
+        "**Lives** is the surviving inforce per issued policy and the dollar lines "
+        "are amounts per issued policy."
+    )
     data = {label: series[key] for key, label in _INCOME_ROWS}
     df = pd.DataFrame(data).T
     df.columns = [f"Yr {i}" for i in range(1, PROJECTION_YEARS + 1)]

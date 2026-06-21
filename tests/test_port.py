@@ -16,6 +16,10 @@ def test_apply_sales_updates_distribution_and_premium(asm):
     # distribution gender marginal reflects the 75/25 split
     assert abs(new.distribution.gender["M"] - 0.75) < 1e-6
     assert abs(new.distribution.gender["F"] - 0.25) < 1e-6
+    # the joint grid captures the (plan, age, uw) mix: both cells are G/65/UW -> 1.0
+    assert abs(new.distribution.joint["G"]["65"]["UW"] - 1.0) < 1e-6
+    assert abs(sum(w for ages in new.distribution.joint.values()
+                   for uws in ages.values() for w in uws.values()) - 1.0) < 1e-6
     # plan relativity is anchored at G = 1.0
     assert abs(new.premium.plan_rel["G"] - 1.0) < 1e-9
     # premium for a male cell exceeds the female cell (male relativity higher)

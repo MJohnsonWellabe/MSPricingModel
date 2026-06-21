@@ -58,12 +58,35 @@ def test_distribution_dimensions_sum_to_one(asm):
         assert abs(sum(dim.values()) - 1.0) < 1e-4
 
 
-def test_weight_is_product_of_marginals(asm):
+def test_default_grid_is_separable(asm):
+    # the bundled defaults migrate to a separable joint grid, so a cell weight
+    # still equals the product of the derived marginals (within float drift)
     d = asm.distribution
     key = CellKey(73, "F", "N", "OE", "Y", "N")
     expected = (d.by_issue_age[73] * d.gender["F"] * d.plan["N"]
                 * d.uw["OE"] * d.preferred["Y"] * d.hhd["N"])
-    assert abs(d.weight(key) - expected) < 1e-12
+    assert abs(d.weight(key) - expected) < 1e-8
+
+
+def test_non_separable_joint_grid(asm):
+    # a hand-built joint grid where plan/age/UW are NOT separable: the cell weight
+    # must come from the grid cell, not the product of the marginals
+    d = asm.distribution
+    d.joint = {
+        "G": {"65": {"UW": 0.5, "OE": 0.0}, "73": {"UW": 0.0, "OE": 0.1}},
+        "N": {"65": {"UW": 0.1, "OE": 0.0}, "73": {"UW": 0.0, "OE": 0.3}},
+    }
+    d.gender = {"M": 0.5, "F": 0.5}
+    d.preferred = {"Y": 1.0, "N": 0.0}
+    d.hhd = {"Y": 1.0, "N": 0.0}
+    key = CellKey(73, "M", "G", "OE", "Y", "Y")
+    assert abs(d.weight(key) - 0.1 * 0.5 * 1.0 * 1.0) < 1e-12
+    # product of marginals would give a different number (grid is non-separable)
+    prod = (d.by_issue_age[73] * d.plan["G"] * d.uw["OE"]
+            * d.gender["M"] * d.preferred["Y"] * d.hhd["Y"])
+    assert abs(d.weight(key) - prod) > 1e-3
+    # a grid cell with zero weight yields a zero cell weight
+    assert d.weight(CellKey(65, "M", "G", "OE", "Y", "Y")) == 0.0
 
 
 def test_build_cells_full_grid_and_weights():

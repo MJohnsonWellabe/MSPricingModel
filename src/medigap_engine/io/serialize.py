@@ -85,11 +85,20 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
             premium_trend=float(p.get("premium_trend", 0.05)),
         )
     dist = d["distribution"]
+    if "joint" in dist:
+        joint = {str(pl): {str(a): {str(u): float(w) for u, w in uws.items()}
+                           for a, uws in ages.items()}
+                 for pl, ages in dist["joint"].items()}
+    else:  # migrate legacy independent marginals -> joint outer product (same behaviour)
+        by_age = {str(int(k)): float(v) for k, v in dist["by_issue_age"].items()}
+        plan_w = {str(k): float(v) for k, v in dist["plan"].items()}
+        uw_w = {str(k): float(v) for k, v in dist["uw"].items()}
+        joint = {pl: {a: {u: pw * aw * uwv for u, uwv in uw_w.items()}
+                      for a, aw in by_age.items()}
+                 for pl, pw in plan_w.items()}
     distribution = DistributionAssumptions(
-        by_issue_age={int(k): float(v) for k, v in dist["by_issue_age"].items()},
+        joint=joint,
         gender={k: float(v) for k, v in dist["gender"].items()},
-        plan={k: float(v) for k, v in dist["plan"].items()},
-        uw={k: float(v) for k, v in dist["uw"].items()},
         preferred={k: float(v) for k, v in dist["preferred"].items()},
         hhd={k: float(v) for k, v in dist["hhd"].items()},
     )
@@ -158,8 +167,8 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
             "antiselection_lambda_lapse": r.antiselection_lambda_lapse,
         },
         "distribution": {
-            "by_issue_age": dist.by_issue_age, "gender": dist.gender, "plan": dist.plan,
-            "uw": dist.uw, "preferred": dist.preferred, "hhd": dist.hhd,
+            "joint": dist.joint, "gender": dist.gender,
+            "preferred": dist.preferred, "hhd": dist.hhd,
         },
         "termination": {
             "base_lapse": t.base_lapse, "uw_lapse_rel": t.uw_lapse_rel,

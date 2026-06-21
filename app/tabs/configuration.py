@@ -80,7 +80,7 @@ def render() -> None:
         "sensitivities, state scope, solve toggle, and formulas. Another user who "
         "imports it will reproduce your results exactly."
     )
-    from app.state import assumptions_xlsx, load_model_json, model_json
+    from app.state import assumptions_xlsx, load_assumptions_xlsx, load_model_json, model_json
     mc = st.columns([1, 1, 2])
     mc[0].download_button("Download full model (JSON)", model_json(),
                           "medigap_model.json", "application/json", key="cfg_model_download")
@@ -98,3 +98,13 @@ def render() -> None:
                        "loaded. Re-run on the Calculation tab to reproduce results.")
         except Exception as exc:  # noqa: BLE001
             st.error(f"Could not import model: {exc}")
+
+    st.caption("Or upload an **assumptions Excel** workbook (as downloaded above) to "
+               "load just the assumptions back.")
+    xup = st.file_uploader("Upload assumptions Excel", type=["xlsx"], key="cfg_xlsx_upload")
+    if xup is not None:
+        try:
+            load_assumptions_xlsx(xup.getvalue())
+            st.success("Assumptions loaded from Excel. Re-run on the Calculation tab.")
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Could not load assumptions Excel: {exc}")

@@ -22,6 +22,20 @@ def test_aggregate_lifetime_lr_from_aggregated_dollars(asm, cells, base_sens):
     assert abs(agg.lifetime_lr - cum_c / cum_p) < 1e-9
 
 
+def test_aggregate_includes_lives(asm, cells, base_sens):
+    subset = cells[:20]
+    rerates = list(asm.rerates.specified_rerates)
+    results = [project_cell(c, asm, base_sens, "All", rerates) for c in subset]
+    agg = aggregate_cells("All", results, asm)
+    lives = agg.series["lives"]
+    # weighted inforce: present, positive, and non-increasing over the projection
+    assert len(lives) == len(asm.morbidity.trend_by_year)
+    assert lives[0] > 0
+    expected0 = sum(r.weight * r.projection.series["lives"][0] for r in results)
+    assert abs(lives[0] - expected0) < 1e-9
+    assert lives[-1] <= lives[0]
+
+
 def test_aggregate_carries_rerate_vector(asm, cells, base_sens):
     rerates = [0.0, 0.1] + [0.05] * 28
     results = [project_cell(c, asm, base_sens, "All", rerates) for c in cells[:5]]
