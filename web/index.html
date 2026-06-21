@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Medigap Pricing Model</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@stlite/browser@0.76.0/build/style.css"
+    />
+    <style>
+      #loading { font-family: system-ui, sans-serif; padding: 2rem; color: #444; }
+    </style>
+  </head>
+  <body>
+    <div id="root"><div id="loading">Loading the pricing model… (first load compiles Python in your browser)</div></div>
+    <script type="module">
+      import { mount } from "https://cdn.jsdelivr.net/npm/@stlite/browser@0.76.0/build/stlite.js";
+
+      // The app archive (engine + UI + seed data) is built by CI into app.tar.gz.
+      const appArchive = await fetch("./app.tar.gz").then((r) => r.arrayBuffer());
+
+      mount(
+        {
+          requirements: ["numpy", "pandas"],
+          entrypoint: "app/streamlit_app.py",
+          archives: [
+            {
+              buffer: appArchive,
+              format: "tar.gz",
+            },
+          ],
+        },
+        document.getElementById("root"),
+      );
+    </script>
+  </body>
+</html>

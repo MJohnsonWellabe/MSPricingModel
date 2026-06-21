@@ -1,0 +1,7 @@
+pytest>=7
+ruff>=0.4
+# UI (for local `streamlit run app/streamlit_app.py`; in-browser uses stlite)
+streamlit>=1.36
+pandas>=2.0
+# only needed to regenerate seed data from the source workbook
+openpyxl>=3.1

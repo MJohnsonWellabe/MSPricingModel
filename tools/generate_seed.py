@@ -1,0 +1,172 @@
+"""Regenerate the bundled seed data from the source pricing workbook.
+
+Usage:
+    python tools/generate_seed.py path/to/MS_Pricing_By_State_2026AEP_v5.xlsm.xlsx
+
+Writes:
+    src/medigap_engine/data/default_assumptions.json
+    src/medigap_engine/data/default_cells.json
+
+Requires openpyxl (``pip install openpyxl``). This script encodes how each
+assumption block maps out of the workbook; see the README for the mapping.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+import openpyxl
+
+HERE = os.path.dirname(__file__)
+DATA = os.path.join(HERE, "..", "src", "medigap_engine", "data")
+PLANS = ["F", "G", "N"]
+
+# per-state premium columns on the Input tab (state -> column letter)
+STATE_COLS = {
+    "TX": "T", "All": "U", "WI": "V", "DE": "W", "KY": "X", "NH": "Y", "OH": "Z",
+    "LA": "AA", "KS": "AB", "FL": "AC", "TN": "AD", "NE": "AE", "MD": "AF",
+    "MO": "AG", "CO": "AH", "GA": "AI", "CA": "AJ", "AZ": "AK", "PA": "AL",
+    "MI": "AM", "NC": "AN", "WA": "AO", "NJ": "AP", "IN": "AQ", "VA": "AR",
+    "IA": "AS", "SC": "AT", "IL": "AV",
+}
+
+
+def _rnd(v, n=6):
+    try:
+        return round(float(v), n)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_assumptions(A) -> dict:
+    ci = openpyxl.utils.column_index_from_string
+
+    def c(letter, r):
+        return A.cell(r, ci(letter)).value
+
+    ages = [int(c("Q", r)) for r in range(14, 50)]
+
+    def cc(cols):
+        m = {"F": cols[0], "G": cols[1], "N": cols[2]}
+        return {p: [_rnd(c(m[p], r), 4) for r in range(14, 50)] for p in PLANS}
+
+    selection = []
+    for r in range(4, 95):
+        yr = c("AN", r)
+        if yr is None:
+            continue
+        selection.append({
+            "duration": int(yr), "issue_age": int(c("AO", r)),
+            "uw": c("AP", r), "factor": _rnd(c("AQ", r), 6),
+        })
+
+    state_factors = {}
+    for r in range(4, 33):
+        s = c("AZ", r)
+        if s is not None:
+            state_factors[str(s)] = _rnd(c("BA", r), 4)
+
+    comm_by_state = {}
+    for col in range(ci("BX"), ci("CY") + 1):
+        s = A.cell(2, col).value
+        if s is None:
+            continue
+        comm_by_state[str(s)] = [_rnd(A.cell(r, col).value, 4) for r in range(3, 33)]
+
+    sc = {A.cell(r, 1).value: A.cell(r, 2).value for r in range(2, 14)}
+
+    return {
+        "schema_version": "1",
+        "morbidity": {
+            "ages": ages, "plans": PLANS,
+            "base_cc_male": cc(["Y", "Z", "AA"]),
+            "base_cc_female": cc(["AE", "AF", "AG"]),
+            "state_factors": state_factors,
+            "selection_factors": selection,
+            "cc_aging_by_duration": [_rnd(c("AL", r), 6) or 0.0 for r in range(3, 33)],
+            "preferred_factor": {str(c("AS", 4)): _rnd(c("AT", 4)),
+                                 str(c("AS", 5)): _rnd(c("AT", 5))},
+            "hhd_factor": {str(c("AS", 4)): _rnd(c("AU", 4)),
+                           str(c("AS", 5)): _rnd(c("AU", 5))},
+            "trend_by_year": [_rnd(c("G", r), 4) for r in range(3, 33)],
+        },
+        "rerates": {
+            "solve": True,
+            "specified_rerates": [_rnd(c("F", r), 4) for r in range(3, 33)],
+            "aging_rerate_by_age_ages": [int(c("AI", r)) for r in range(3, 39)],
+            "aging_rerate_by_age_factor": [_rnd(c("AJ", r), 6) for r in range(3, 39)],
+            "target_lifetime_lr": 0.65, "target_irr": 0.15,
+            "max_rerate": 0.15, "in_year_lr_floor": 0.50,
+            "consecutive_z": 0.10, "consecutive_b": 2, "antiselection_lambda": 0.5,
+        },
+        "distribution": {
+            "gender": {"M": 0.43, "F": 0.57},
+            "preferred": {"Y": 0.9, "N": 0.1},
+            "hhd": {"Y": 0.6, "N": 0.4},
+        },
+        "termination": {
+            "base_lapse": {
+                "OE": [_rnd(c("BM", r)) for r in range(3, 33)],
+                "GI": [_rnd(c("BN", r)) for r in range(3, 33)],
+                "UW": [_rnd(c("BO", r)) for r in range(3, 33)],
+            },
+            "state_factors": {k: 1.0 for k in state_factors},
+            "mort_age": [int(c("BS", r)) for r in range(3, 104)],
+            "mort_qx": [_rnd(c("BT", r), 8) for r in range(3, 104)],
+            "dur2_scaling": 1.05, "dur3plus_scaling": 1.10,
+        },
+        "commission": {
+            "by_state": comm_by_state,
+            "plan_n_schedule": [_rnd(c("E", r), 4) for r in range(33, 63)],
+            "nonn_schedule": [_rnd(c("E", r), 4) for r in range(3, 33)],
+            "gi_flat": 25.0, "plan_f_offset": 240.0, "age80_halving": True,
+        },
+        "other": {
+            "discount_rate": _rnd(sc.get("Discount"), 4),
+            "premium_tax": _rnd(sc.get("premium tax"), 4),
+            "oper_acq": sc.get("Oper. Acq"), "marketing_acq": sc.get("Marketing"),
+            "maintenance": sc.get("Maint"), "inflation": _rnd(sc.get("inflation"), 4),
+            "rbc_factor": sc.get("RBC"), "covariance": _rnd(sc.get("Covariance"), 4),
+            "rbc_pct_of_prem": _rnd(sc.get("RBC as % of prem"), 4),
+            "nier": _rnd(sc.get("NIER"), 4), "tax_rate": _rnd(sc.get("Tax rate"), 4),
+            "ibnr_pct": _rnd(sc.get("IBNR % of Claims"), 4),
+        },
+    }
+
+
+def build_cells(ws) -> list:
+    ci = openpyxl.utils.column_index_from_string
+    state_idx = {s: ci(col) - 1 for s, col in STATE_COLS.items()}
+    cells = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or row[0] is None or row[1] is None:
+            break
+        sp = {s: round(float(row[i]), 4) for s, i in state_idx.items()
+              if i < len(row) and isinstance(row[i], (int, float))}
+        cells.append({
+            "cell": int(row[0]), "issue_age": int(row[1]), "gender": row[2],
+            "plan": row[3], "uw": row[4], "preferred": row[5], "hhd": row[6],
+            "weight": round(float(row[7] or 0), 8), "premium": round(float(row[8] or 0), 4),
+            "state_premiums": sp,
+        })
+    return cells
+
+
+def main(path: str) -> None:
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    assumptions = build_assumptions(wb["Assumptions"])
+    cells = build_cells(wb["Input"])
+    wb.close()
+    with open(os.path.join(DATA, "default_assumptions.json"), "w") as fh:
+        json.dump(assumptions, fh, indent=1)
+    with open(os.path.join(DATA, "default_cells.json"), "w") as fh:
+        json.dump(cells, fh, indent=0)
+    print(f"Wrote {len(cells)} cells and assumptions to {DATA}")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print(__doc__)
+        sys.exit(1)
+    main(sys.argv[1])
