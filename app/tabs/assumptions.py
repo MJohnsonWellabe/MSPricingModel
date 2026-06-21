@@ -69,6 +69,11 @@ def _morbidity(asm) -> None:
             m.base_cc_female[p] = edf[p].tolist()
 
     st.subheader("Trend by duration year")
+    m.trend_first_year_exponent = st.number_input(
+        "First-year trend exponent (applied to (1+trend) in duration 1)",
+        value=float(m.trend_first_year_exponent), step=0.05, format="%.2f",
+        help="Reflects time from pricing to the midpoint of the first duration. "
+             "Was hard-coded to 1.75 in the workbook; now an input.")
     tdf = pd.DataFrame({"Trend": m.trend_by_year}, index=range(1, len(m.trend_by_year) + 1))
     ted = st.data_editor(tdf, use_container_width=True, height=240, key="trend")
     m.trend_by_year = ted["Trend"].tolist()
@@ -98,10 +103,15 @@ def _rerates(asm) -> None:
                                              step=0.01, format="%.3f")
     r.target_irr = c[1].number_input("Target IRR (reported)", value=float(r.target_irr or 0.0),
                                      step=0.01, format="%.3f")
-    r.antiselection_lambda = c[2].number_input(
-        "Antiselection λ (the 0.5)", value=float(r.antiselection_lambda),
+    c2 = st.columns(2)
+    r.antiselection_lambda_claims = c2[0].number_input(
+        "Antiselection λ — claims", value=float(r.antiselection_lambda_claims),
         step=0.05, format="%.2f",
-        help="Used in 0.5×(rerate−trend) for both claims and lapse antiselection.")
+        help="The factor in λ×(rerate−trend) added to the claims antiselection (column P).")
+    r.antiselection_lambda_lapse = c2[1].number_input(
+        "Antiselection λ — lapse", value=float(r.antiselection_lambda_lapse),
+        step=0.05, format="%.2f",
+        help="The factor in λ×(rerate−trend) applied to the UW lapse antiselection.")
 
     st.subheader("Rules")
     c2 = st.columns(4)
@@ -123,14 +133,34 @@ def _rerates(asm) -> None:
 
 
 def _distribution(asm) -> None:
-    d = asm.distribution
-    st.subheader("Distribution of business")
-    st.caption("Per-cell weights come from the bundled cell universe; these "
-               "category weights are available for experience-study porting.")
-    c = st.columns(3)
-    c[0].write("Gender"); c[0].write(d.gender)
-    c[1].write("Preferred"); c[1].write(d.preferred)
-    c[2].write("Household discount"); c[2].write(d.hhd)
+    import pandas as pd
+    from medigap_engine.models.cell import CellKey, PricingCell
+
+    st.subheader("Distribution of business — per-cell weights & premiums")
+    st.caption("Every pricing cell's distribution weight and base premium is an input. "
+               "Edit directly, or adopt from the Experience Study (Sales) tab. Weights "
+               "are re-normalised when the model runs.")
+    cells = st.session_state.cells
+    df = pd.DataFrame([{
+        "Issue age": c.key.issue_age, "Gender": c.key.gender, "Plan": c.key.plan,
+        "UW": c.key.uw_class, "Pref": c.key.preferred, "HHD": c.key.hhd,
+        "Weight": c.weight, "Base premium": c.base_prem,
+    } for c in cells])
+    edited = st.data_editor(
+        df, use_container_width=True, height=420, key="cells_editor",
+        disabled=["Issue age", "Gender", "Plan", "UW", "Pref", "HHD"])
+    total_w = float(edited["Weight"].sum())
+    st.caption(f"Weights sum to {total_w:.4f} (re-normalised to 1 at run time).")
+    # write edits back, preserving per-state premium overrides
+    new_cells = []
+    for orig, (_, row) in zip(cells, edited.iterrows()):
+        key = CellKey(issue_age=int(row["Issue age"]), gender=row["Gender"],
+                      plan=row["Plan"], uw_class=row["UW"],
+                      preferred=row["Pref"], hhd=row["HHD"])
+        new_cells.append(PricingCell(
+            key=key, base_prem=float(row["Base premium"]), weight=float(row["Weight"]),
+            state_premiums=orig.state_premiums))
+    st.session_state.cells = new_cells
 
 
 def _termination(asm) -> None:

@@ -60,3 +60,36 @@ def test_more_rerate_lowers_lifetime_lr(asm, cells, base_sens):
     lr_low = proj(build_rerate_vector(asm, 2.0)).lifetime_lr
     lr_high = proj(build_rerate_vector(asm, 30.0)).lifetime_lr
     assert lr_high <= lr_low
+
+
+def _baseline_fixable(asm, proj):
+    floor = asm.rerates.in_year_lr_floor
+    base_iy = proj(build_rerate_vector(asm, 2.0)).series["in_year_lr"]
+    return [lr >= floor - 1e-9 for lr in base_iy]
+
+
+def test_clamp_enforces_inyear_floor(asm, cells, base_sens):
+    from medigap_engine.engine.solver import clamp_to_inyear_floor
+    # aggressive specified rerates would push in-year LR below the floor
+    asm.rerates.in_year_lr_floor = 0.65
+    asm.rerates.max_rerate = 0.30
+    aggressive = [0.0, 0.15] + [0.30] * 28
+    proj = _projector(asm, cells, base_sens, "All")
+    fixable = _baseline_fixable(asm, proj)
+    clamped = clamp_to_inyear_floor(proj, asm, aggressive)
+    iy = proj(clamped).series["in_year_lr"]
+    # every rerate-fixable duration now meets the floor
+    for i, lr in enumerate(iy):
+        if fixable[i] and lr > 0:
+            assert lr >= asm.rerates.in_year_lr_floor - 1e-3
+
+
+def test_solver_output_respects_floor(asm, cells, base_sens):
+    asm.rerates.target_lifetime_lr = 0.60  # push hard so rerates are large
+    proj = _projector(asm, cells, base_sens, "All")
+    fixable = _baseline_fixable(asm, proj)
+    vec, info = solve_rerates(proj, asm)
+    iy = proj(vec).series["in_year_lr"]
+    for i, lr in enumerate(iy):
+        if fixable[i] and lr > 0:
+            assert lr >= asm.rerates.in_year_lr_floor - 1e-3

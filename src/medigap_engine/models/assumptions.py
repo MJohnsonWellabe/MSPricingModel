@@ -28,6 +28,7 @@ class MorbidityAssumptions:
     preferred_factor: dict[str, float]       # Y/N -> factor (applied for UW class only)
     hhd_factor: dict[str, float]             # Y/N -> factor
     trend_by_year: list[float]               # claims trend by duration year
+    trend_first_year_exponent: float = 1.75  # power applied to (1+trend) in duration 1
 
     def base_cc(self, gender: str) -> dict[str, list[float]]:
         return self.base_cc_male if gender == "M" else self.base_cc_female
@@ -45,7 +46,8 @@ class RerateAssumptions:
     in_year_lr_floor: float                  # rule: in-year LR may never fall below this
     consecutive_z: float                     # rule: no consecutive rerates above z ...
     consecutive_b: int                       # ... for b years running
-    antiselection_lambda: float              # the 0.5 in 0.5*(rerate - trend)
+    antiselection_lambda_claims: float       # the 0.5 in 0.5*(rerate - trend) for claims (col P)
+    antiselection_lambda_lapse: float        # the 0.5 in 0.5*(rerate - trend) for the lapse load
 
 
 @dataclass

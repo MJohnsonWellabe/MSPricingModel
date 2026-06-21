@@ -55,16 +55,32 @@ distributable cashflow. When solving, rerates are taken until the projected
 lifetime loss ratio hits the target (subject to rules), then trend-only. See the
 in-app **Documentation** tab for the full formula reference.
 
+## Experience study (raw data → assumptions)
+
+The **Experience Study** tab ingests raw row-level CSVs (aggregated in-app):
+
+- **Sales data** → per-cell distribution weights and average premiums (overall and
+  by state). *Adopt* overrides the default cell universe.
+- **Claims data** (cols A:Q) → observed claim cost per life, state factors, UW
+  selection by duration, and claim-cost aging. *Adopt* recalibrates the base
+  claim-cost level (per plan) and state factors.
+- **AE analysis** → actual-to-expected at selectable granularity.
+
+Bundled templates and realistic sample datasets live in
+`src/medigap_engine/data/templates/` (download a template or "Load sample data"
+in the app).
+
 ## Phases
 
-1. **Engine + assumptions + output** (this release): engine, solver, six
-   assumption tabs, multi-state output with per-state income statements.
-2. **Experience study + AE analysis**: derive assumptions from pre-aggregated
-   claims uploads; actual-to-expected analysis.
+1. **Engine + assumptions + output** ✅: engine, solver, six assumption tabs,
+   multi-state output with per-state income statements.
+2. **Experience study + AE analysis** ✅: raw sales/claims ingestion, derivation,
+   adopt, and actual-to-expected analysis.
 3. **Polish**: charts, richer sensitivities, full documentation, performance.
 
-## Regenerating seed data
+## Regenerating seed data & samples
 
 ```bash
-python tools/generate_seed.py path/to/MS_Pricing_By_State_2026AEP_v5.xlsm.xlsx
+python tools/generate_seed.py    path/to/MS_Pricing_By_State_2026AEP_v5.xlsm.xlsx
+python tools/extract_samples.py  path/to/MS_Pricing_By_State_2026AEP_v5.xlsm.xlsx [claims_cap]
 ```

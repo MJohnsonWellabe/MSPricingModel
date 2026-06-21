@@ -17,7 +17,7 @@ dev = ["pytest>=7", "ruff>=0.4"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-medigap_engine = ["data/*.json"]
+medigap_engine = ["data/*.json", "data/templates/*.csv"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

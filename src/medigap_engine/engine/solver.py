@@ -61,6 +61,67 @@ def build_rerate_vector(asm: AssumptionSet, x: float) -> list[float]:
     return out
 
 
+def _trend(asm: AssumptionSet, i: int) -> float:
+    t = asm.morbidity.trend_by_year
+    return t[min(i + 1, len(t)) - 1]
+
+
+def clamp_to_inyear_floor(
+    project_state: Callable[[list[float]], StateResult],
+    asm: AssumptionSet,
+    rerates: list[float],
+    max_passes: int = 200,
+) -> list[float]:
+    """Hard-enforce the in-year loss-ratio floor against *rerate-driven* breaches.
+
+    A duration's in-year LR can fall below the floor for two reasons:
+
+    * **Rerate-driven** — cumulative rerating pushed premium too high. Because
+      premium compounds, the fix is to reduce the nearest *earlier* rerate that is
+      still above trend; this lifts the LR of that duration and all later ones.
+    * **Structural** — fresh underwritten business has low claims early on, so the
+      in-year LR is below the floor even with trend-only rerates. No rerate choice
+      can change this, so those durations are exempt (reported as diagnostics).
+
+    The trend-only (minimum-rerate) projection defines the structural baseline:
+    durations whose baseline LR is already below the floor are exempt.
+    """
+    floor = asm.rerates.in_year_lr_floor
+    n = PROJECTION_YEARS
+
+    # structural baseline: durations 1-2 specified, everything else trend-only.
+    # This is the lowest-rerate (highest in-year LR) reachable, so it defines
+    # which durations can be fixed by rerating at all.
+    baseline = build_rerate_vector(asm, 2.0)
+    base_iy = project_state(baseline).series["in_year_lr"]
+    fixable = [base_iy[i] >= floor - 1e-9 for i in range(n)]
+
+    orig = list(rerates)
+
+    def blended(s: float) -> list[float]:
+        # s=0 -> baseline, s=1 -> original rerates (durations 1-2 unchanged either way)
+        return [baseline[i] + s * (orig[i] - baseline[i]) for i in range(n)]
+
+    def worst_fixable_lr(vec: list[float]) -> float:
+        iy = project_state(vec).series["in_year_lr"]
+        vals = [iy[i] for i in range(n) if fixable[i] and iy[i] > 0]
+        return min(vals) if vals else 1.0
+
+    if worst_fixable_lr(orig) >= floor - 1e-9:
+        return orig  # nothing breaches
+
+    # worst fixable LR is monotone decreasing in s; bisect for the largest s
+    # whose blended vector keeps every fixable duration at/above the floor.
+    lo, hi = 0.0, 1.0
+    for _ in range(max(20, max_passes // 8)):
+        mid = (lo + hi) / 2.0
+        if worst_fixable_lr(blended(mid)) >= floor:
+            lo = mid
+        else:
+            hi = mid
+    return blended(lo)
+
+
 def solve_rerates(
     project_state: Callable[[list[float]], StateResult],
     asm: AssumptionSet,
@@ -110,10 +171,13 @@ def solve_rerates(
         info["status"] = "converged"
         info["x"] = x
 
-    # diagnostic: where does the in-year LR breach the floor?
+    # hard-enforce the in-year LR floor on the chosen vector
+    vec = clamp_to_inyear_floor(project_state, asm, vec)
+
+    # diagnostic: any residual floor breach (LR below floor even at trend-only)
     result = project_state(vec)
     floor = asm.rerates.in_year_lr_floor
-    breaches = [i + 1 for i, lr in enumerate(result.series["in_year_lr"]) if 0 < lr < floor]
+    breaches = [i + 1 for i, lr in enumerate(result.series["in_year_lr"]) if 0 < lr < floor - 1e-6]
     info["in_year_lr_floor_breaches"] = breaches
     info["achieved_lifetime_lr"] = result.lifetime_lr
     return vec, info

@@ -31,7 +31,8 @@ def project_cell(
     o = asm.other
     morb = asm.morbidity
     rr = asm.rerates
-    lam = rr.antiselection_lambda
+    lam_claims = rr.antiselection_lambda_claims
+    lam_lapse = rr.antiselection_lambda_lapse
     base_prem = cell.premium_for(state)
     state_cc_factor = morb.state_factors.get(state, morb.state_factors.get("All", 1.0))
     lapse_state_factor = asm.termination.state_factors.get(state, 1.0)
@@ -68,7 +69,7 @@ def project_cell(
         # --- termination -------------------------------------------------
         base_lapse = L.lapse_rate(asm, key.uw_class, d) * lapse_state_factor
         # rerate-driven antiselective lapse: (1 + lambda*(rerate - trend)), with sensitivity
-        lapse_antisel = 1.0 + lam * (rate_d - trend_d) * sens.antiselective_lapse
+        lapse_antisel = 1.0 + lam_lapse * (rate_d - trend_d) * sens.antiselective_lapse
         lapse_d = base_lapse * sens.termination_scale * lapse_antisel
         lapse_d = max(0.0, min(lapse_d, 1.0))
         mort_d = asm.termination.mortality(attained_age)
@@ -93,12 +94,12 @@ def project_cell(
 
         # --- trend & antiselection (col O, P) ---------------------------
         if d == 1:
-            O_d = (1.0 + trend_d) ** 1.75
+            O_d = (1.0 + trend_d) ** morb.trend_first_year_exponent
             P_d = 1.0
         else:
             O_d = O_prev * (1.0 + trend_d)
             aging = L.cc_aging_duration(asm, d)
-            P_d = (1.0 + aging) * P_prev + lam * (rate_d - trend_d) * sens.antiselective_claims
+            P_d = (1.0 + aging) * P_prev + lam_claims * (rate_d - trend_d) * sens.antiselective_claims
 
         # --- claims ------------------------------------------------------
         base_cc = (

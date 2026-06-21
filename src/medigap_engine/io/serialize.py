@@ -28,6 +28,7 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
         preferred_factor=dict(m["preferred_factor"]),
         hhd_factor=dict(m["hhd_factor"]),
         trend_by_year=list(m["trend_by_year"]),
+        trend_first_year_exponent=float(m.get("trend_first_year_exponent", 1.75)),
     )
     r = d["rerates"]
     rerates = RerateAssumptions(
@@ -41,7 +42,10 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
         in_year_lr_floor=float(r["in_year_lr_floor"]),
         consecutive_z=float(r["consecutive_z"]),
         consecutive_b=int(r["consecutive_b"]),
-        antiselection_lambda=float(r["antiselection_lambda"]),
+        antiselection_lambda_claims=float(
+            r.get("antiselection_lambda_claims", r.get("antiselection_lambda", 0.5))),
+        antiselection_lambda_lapse=float(
+            r.get("antiselection_lambda_lapse", r.get("antiselection_lambda", 0.5))),
     )
     dist = d["distribution"]
     distribution = DistributionAssumptions(
@@ -89,6 +93,7 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
             "cc_aging_by_duration": m.cc_aging_by_duration,
             "preferred_factor": m.preferred_factor, "hhd_factor": m.hhd_factor,
             "trend_by_year": m.trend_by_year,
+            "trend_first_year_exponent": m.trend_first_year_exponent,
         },
         "rerates": {
             "solve": r.solve, "specified_rerates": r.specified_rerates,
@@ -97,7 +102,8 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
             "target_lifetime_lr": r.target_lifetime_lr, "target_irr": r.target_irr,
             "max_rerate": r.max_rerate, "in_year_lr_floor": r.in_year_lr_floor,
             "consecutive_z": r.consecutive_z, "consecutive_b": r.consecutive_b,
-            "antiselection_lambda": r.antiselection_lambda,
+            "antiselection_lambda_claims": r.antiselection_lambda_claims,
+            "antiselection_lambda_lapse": r.antiselection_lambda_lapse,
         },
         "distribution": {"gender": dist.gender, "preferred": dist.preferred, "hhd": dist.hhd},
         "termination": {

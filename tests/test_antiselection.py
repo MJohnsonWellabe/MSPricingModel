@@ -26,7 +26,7 @@ def _expected_antiselection(asm, rerates, lam):
 
 def test_antiselection_matches_recurrence(asm, sample_cell, base_sens):
     rerates = list(asm.rerates.specified_rerates)
-    lam = asm.rerates.antiselection_lambda
+    lam = asm.rerates.antiselection_lambda_claims
     res = project_cell(sample_cell, asm, base_sens, "All", rerates)
     got = res.projection.series["antiselection"]
     exp = _expected_antiselection(asm, rerates, lam)
@@ -41,7 +41,7 @@ def test_antiselection_first_duration_is_one(asm, sample_cell, base_sens):
 
 
 def test_lambda_zero_removes_rerate_term(asm, sample_cell, base_sens):
-    asm.rerates.antiselection_lambda = 0.0
+    asm.rerates.antiselection_lambda_claims = 0.0
     res = project_cell(sample_cell, asm, base_sens, "All",
                        list(asm.rerates.specified_rerates))
     P = res.projection.series["antiselection"]

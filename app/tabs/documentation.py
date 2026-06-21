@@ -32,10 +32,12 @@ income statements.
   factor × morbidity sensitivity.
 - `selection` by (issue age, UW class, duration); carried forward beyond the
   table's last duration.
-- `trend_d`: `(1 + trend)^1.75` in year 1, then compounding.
+- `trend_d`: `(1 + trend)^E` in year 1 (E = **first-year trend exponent**, an input
+  defaulting to 1.75), then compounding.
 - **Antiselection (column P):** `P_1 = 1`;
-  `P_d = (1 + aging_d) × P_{d-1} + λ × (rerate_d − trend_d)` (× antiselective-claims
-  sensitivity). **λ defaults to 0.5** and is editable on the Rerates tab.
+  `P_d = (1 + aging_d) × P_{d-1} + λ_claims × (rerate_d − trend_d)` (× antiselective-claims
+  sensitivity). The lapse load uses a separate `λ_lapse`. **Both λ default to 0.5** and are
+  editable on the Rerates tab.
 
 ### Expenses, capital & income
 - IBNR = ibnr% × claims; NII = avg(IBNR) × NIER.
@@ -50,20 +52,40 @@ income statements.
 
 ### Rerate solver
 When solving, the model takes rerates (as large as the rules allow) until the
-projected **lifetime loss ratio** reaches the target, then trend-only rerates for
-the remainder. Rules: max single rerate; no more than *b* consecutive rerates
-above *z*; an in-year LR floor (reported as a diagnostic). The solver bisects a
-continuous switchover point because lifetime LR is monotone in it.
+projected **lifetime loss ratio** reaches the target (default **78%**), then
+trend-only rerates for the remainder. Rules: max single rerate; no more than *b*
+consecutive rerates above *z*; and a **hard in-year LR floor** (default **65%**)
+— rerates are scaled back wherever they would push a duration's in-year loss
+ratio below the floor (durations whose LR is structurally below the floor even
+with trend-only rerates are exempt and reported). The solver bisects a continuous
+switchover point because lifetime LR is monotone in it.
 
 ### Aggregation
 Dollar line items are summed across cells weighted by each cell's distribution
-weight; ratio metrics (loss ratio, IRR) are re-derived from the aggregated
-cashflows. States are combined into an all-states view.
+weight (re-normalised to 1 at run time); ratio metrics (loss ratio, IRR) are
+re-derived from the aggregated cashflows. States are combined into an all-states
+view.
+
+### Experience study (raw data → assumptions)
+- **Sales data** (raw rows) is aggregated to per-cell distribution weights and
+  average premiums (overall and by state); *Adopt* writes them into the cell
+  universe, overriding the defaults.
+- **Claims data** (raw rows, cols A:Q) yields observed claim cost per life
+  (`Σ adj_claims / Σ (cnt/12)` life-years), state factors, UW selection by
+  duration, and claim-cost aging by duration. *Adopt* recalibrates the base
+  claim-cost level (per plan) and state factors; selection/aging are surfaced for
+  judgement.
+- **AE analysis** compares actual claims to expected (best-estimate assumptions,
+  excluding the pricing antiselection load) at selectable granularity.
 
 ### Notes / deliberate choices
+- Every input is an assumption — distribution weights, premiums, the two
+  antiselection λ (claims & lapse), and the first-year trend exponent are all
+  editable; nothing pricing-relevant is hard-coded.
 - Selection factors are carried forward past the source table's 5 durations.
 - Acquisition costs are treated as one-time at issue; maintenance recurs.
-- The in-year LR floor is currently a diagnostic, not a hard re-solve constraint.
+- The in-year LR floor is a **hard** rule (rerates scaled back to respect it);
+  structurally sub-floor durations are exempt and reported.
 """
 
 

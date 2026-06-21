@@ -1,13 +1,24 @@
 """Top-level run orchestration: price a set of states from cells + assumptions."""
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ..models.assumptions import AssumptionSet
 from ..models.cell import PricingCell
 from ..models.config import RunConfig
 from ..models.results import RunResult, StateResult
 from .aggregate import aggregate_cells, aggregate_states
 from .project import project_cell
-from .solver import solve_rerates
+from .solver import clamp_to_inyear_floor, solve_rerates
+
+
+def normalize_weights(cells: list[PricingCell]) -> list[PricingCell]:
+    """Scale cell weights to sum to 1 (ratio metrics are scale-invariant, but
+    this keeps aggregated dollar magnitudes interpretable)."""
+    total = sum(c.weight for c in cells)
+    if total <= 0:
+        return list(cells)
+    return [replace(c, weight=c.weight / total) for c in cells]
 
 
 def _project_state(
@@ -31,8 +42,16 @@ def run_state(
     if solve:
         rerates, info = solve_rerates(projector, asm)
     else:
-        rerates = list(asm.rerates.specified_rerates)
-        info = {"status": "specified", "rerates": rerates}
+        # specified rerates still respect the hard in-year LR floor
+        rerates = clamp_to_inyear_floor(projector, asm, list(asm.rerates.specified_rerates))
+        result = projector(rerates)
+        floor = asm.rerates.in_year_lr_floor
+        breaches = [i + 1 for i, lr in enumerate(result.series["in_year_lr"])
+                    if 0 < lr < floor - 1e-6]
+        info = {"status": "specified", "rerates": rerates,
+                "in_year_lr_floor_breaches": breaches,
+                "achieved_lifetime_lr": result.lifetime_lr}
+        return result, info
 
     return projector(rerates), info
 
@@ -44,6 +63,7 @@ def run(
 
     Returns the :class:`RunResult` and a per-state dict of solver diagnostics.
     """
+    cells = normalize_weights(cells)
     by_state: dict[str, StateResult] = {}
     diagnostics: dict[str, dict] = {}
     for state in config.states:

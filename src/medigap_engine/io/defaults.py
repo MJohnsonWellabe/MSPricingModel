@@ -28,6 +28,18 @@ def _load_json(name: str) -> object:
         return json.load(fh)
 
 
+def load_template_csv(name: str) -> str:
+    """Return the text of a bundled template/sample CSV under data/templates/.
+
+    ``name`` is e.g. 'sales_template.csv', 'claims_sample.csv'."""
+    if _files is not None:
+        return _files("medigap_engine.data.templates").joinpath(name).read_text(encoding="utf-8")
+    import os  # pragma: no cover
+    here = os.path.join(os.path.dirname(__file__), "..", "data", "templates", name)
+    with open(here, encoding="utf-8") as fh:  # pragma: no cover
+        return fh.read()
+
+
 @lru_cache(maxsize=1)
 def default_assumptions() -> AssumptionSet:
     return assumptions_from_dict(_load_json("default_assumptions.json"))

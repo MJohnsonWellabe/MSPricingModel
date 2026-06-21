@@ -1,0 +1,9 @@
+state,plan,issue_age,gender,uw_class,duration,cnt,earned,annualized_prem,adj_claims
+TX,G,83,F,UW,1,3,562.77,6746.16,2093.63
+NC,G,69,M,OE,1,2,249.5,2994.0,73.11
+IA,G,68,F,UW,1,3,346.96,4168.08,125.8
+SC,F,75,F,UW,1,3,522.24,6238.96,71.92
+VA,G,68,F,UW,1,0,0.0,0.0,0.0
+CO,G,72,F,OE,1,1,129.7,1558.2,13.41
+IA,F,78,F,UW,1,0,0.0,0.0,0.0
+VA,G,75,M,UW,1,10,1367.05,16951.8,282.05

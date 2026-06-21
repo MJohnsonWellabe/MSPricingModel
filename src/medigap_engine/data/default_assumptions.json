@@ -920,7 +920,8 @@
    0.06,
    0.06,
    0.06
-  ]
+  ],
+  "trend_first_year_exponent": 1.75
  },
  "rerates": {
   "solve": true,
@@ -1032,13 +1033,14 @@
    0.045,
    0.045
   ],
-  "target_lifetime_lr": 0.65,
+  "target_lifetime_lr": 0.78,
   "target_irr": 0.15,
   "max_rerate": 0.15,
-  "in_year_lr_floor": 0.5,
+  "in_year_lr_floor": 0.65,
   "consecutive_z": 0.1,
   "consecutive_b": 2,
-  "antiselection_lambda": 0.5
+  "antiselection_lambda_claims": 0.5,
+  "antiselection_lambda_lapse": 0.5
  },
  "distribution": {
   "gender": {
