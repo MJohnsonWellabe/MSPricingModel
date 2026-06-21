@@ -80,10 +80,11 @@ def _morbidity(asm) -> None:
     for p in m.plans:
         if p in edb:
             m.base_cc[p] = edb[p].tolist()
-    st.markdown("**Gender claim-cost relativity** (e.g. M = 1.15 means male 15% above female)")
-    m.gender_cc_rel = _dict_editor(m.gender_cc_rel, "Relativity", "cc_gender", fmt="%.4f")
-    gf = normalized_factors(m.gender_cc_rel, asm.distribution.gender)
-    st.caption("→ derived factors: " + ", ".join(f"{k} = {v:.5f}" for k, v in gf.items()))
+    m.gender_cc_diff = st.number_input(
+        "Male claim cost is higher than female by", value=float(m.gender_cc_diff),
+        step=0.01, format="%.3f")
+    gf = normalized_factors({"M": 1.0 + m.gender_cc_diff, "F": 1.0}, asm.distribution.gender)
+    st.caption(f"→ derived factors: M = {gf['M']:.5f}, F = {gf['F']:.5f}")
 
     st.subheader("Trend by duration year")
     m.trend_first_year_exponent = st.number_input(
@@ -124,7 +125,6 @@ def _morbidity(asm) -> None:
     aed = st.data_editor(adf, use_container_width=True, height=300, key="cc_aging",
                          column_config={"Aging": st.column_config.NumberColumn(format="%.4f")})
     m.cc_aging_by_duration = aed["Aging"].tolist()
-    st.caption("Selection (antiselection) factors remain read-only here for now.")
 
 
 def _rerates(asm) -> None:
@@ -179,26 +179,28 @@ def _premium(asm) -> None:
     p.base_by_issue_age = _dict_editor(p.base_by_issue_age, "Base premium",
                                        "prem_base", fmt="%.2f")
 
-    def _rel_block(label, rel, weights, key, normalize=True):
-        st.markdown(f"**{label}**")
-        new = _dict_editor(rel, "Relativity", key)
-        if normalize:
-            fac = normalized_factors(new, weights)
-            st.caption("→ factors: " + ", ".join(f"{k} = {v:.4f}" for k, v in fac.items()))
-        else:
-            st.caption("→ factors = relativities (G anchored at 1.00)")
-        return new
+    def _diff(label, value, high, low, weights, key):
+        v = st.number_input(label, value=float(value), step=0.01, format="%.3f", key=key)
+        fac = normalized_factors({high: 1.0 + v, low: 1.0}, weights)
+        st.caption(f"→ factors: {high} = {fac[high]:.4f}, {low} = {fac[low]:.4f}")
+        return v
 
     cols = st.columns(3)
     with cols[0]:
-        p.plan_rel = _rel_block("Plan (G = 1.00)", p.plan_rel, d.plan, "prem_plan",
-                                normalize=False)
-        p.preferred_rel = _rel_block("Preferred", p.preferred_rel, d.preferred, "prem_pref")
+        st.markdown("**Plan relativities (G = 1.00)**")
+        p.plan_rel = _dict_editor(p.plan_rel, "Relativity", "prem_plan")
+        p.preferred_diff = _diff("Non-preferred premium higher by", p.preferred_diff,
+                                 "N", "Y", d.preferred, "prem_pref")
     with cols[1]:
-        p.gender_rel = _rel_block("Gender", p.gender_rel, d.gender, "prem_gender")
-        p.hhd_rel = _rel_block("HHD", p.hhd_rel, d.hhd, "prem_hhd")
+        p.gender_diff = _diff("Male premium higher than female by", p.gender_diff,
+                              "M", "F", d.gender, "prem_gender")
+        p.hhd_diff = _diff("Non-HHD premium higher by", p.hhd_diff,
+                           "N", "Y", d.hhd, "prem_hhd")
     with cols[2]:
-        p.uw_rel = _rel_block("UW", p.uw_rel, d.uw, "prem_uw")
+        st.markdown("**UW relativities**")
+        p.uw_rel = _dict_editor(p.uw_rel, "Relativity", "prem_uw")
+        ufac = normalized_factors(p.uw_rel, d.uw)
+        st.caption("→ factors: " + ", ".join(f"{k} = {v:.4f}" for k, v in ufac.items()))
     st.markdown("**State factor** (raw)")
     p.state_factor = _dict_editor(p.state_factor, "Factor", "prem_state")
 

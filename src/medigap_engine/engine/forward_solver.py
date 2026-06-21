@@ -20,7 +20,8 @@ from ..models.assumptions import AssumptionSet, PROJECTION_YEARS
 from . import lookups as L
 
 
-def _precompute(cells, asm: AssumptionSet, sens, state: str) -> dict:
+def precompute(cells, asm: AssumptionSet, state: str) -> dict:
+    """Sensitivity-independent per-state precompute (reusable across simulations)."""
     n = PROJECTION_YEARS
     nc = len(cells)
     morb = asm.morbidity
@@ -32,12 +33,19 @@ def _precompute(cells, asm: AssumptionSet, sens, state: str) -> dict:
 
     lapse_base = np.zeros((nc, n))
     mort = np.zeros((nc, n))
-    claim_base = np.zeros((nc, n))
+    claim_base = np.zeros((nc, n))   # excludes morbidity_scale (applied per-sim)
     selection = np.zeros((nc, n))
     aging_h = np.zeros((nc, n))
+    comm_rate = np.zeros((nc, n))
+    gi = np.zeros(nc, dtype=bool)
+    planf = np.zeros(nc, dtype=bool)
+    age80 = np.zeros(nc, dtype=bool)
     for ci, c in enumerate(cells):
         k = c.key
-        cls = L.claim_class_factors(asm, k.uw_class, k.preferred, k.hhd) * sens.morbidity_scale
+        cls = L.claim_class_factors(asm, k.uw_class, k.preferred, k.hhd)
+        gi[ci] = k.uw_class == "GI"
+        planf[ci] = k.plan == "F"
+        age80[ci] = k.issue_age >= 80
         for i in range(n):
             d = i + 1
             attained = k.issue_age + d - 1
@@ -46,6 +54,7 @@ def _precompute(cells, asm: AssumptionSet, sens, state: str) -> dict:
             claim_base[ci, i] = L.base_claim_cost(asm, k.gender, attained, k.plan) * cls
             selection[ci, i] = L.selection_factor(asm, k.issue_age, k.uw_class, d)
             aging_h[ci, i] = L.aging_rerate(asm, attained) if d >= 2 else 0.0
+            comm_rate[ci, i] = asm.commission.rate(state, d, k.plan)
 
     trend = np.array([L.trend_year(asm, i + 1) for i in range(n)])
     O = np.zeros(n)
@@ -58,20 +67,19 @@ def _precompute(cells, asm: AssumptionSet, sens, state: str) -> dict:
         n=n, weight=weight, base_prem=base_prem, lapse_base=lapse_base, mort=mort,
         claim_base=claim_base, selection=selection, aging_h=aging_h, trend=trend,
         O=O, aging_p=aging_p, state_cc=state_cc,
+        comm_rate=comm_rate, gi=gi, planf=planf, age80=age80,
         dur2=asm.termination.dur2_scaling, dur3=asm.termination.dur3plus_scaling,
         lam_lapse=asm.rerates.antiselection_lambda_lapse,
         lam_claims=asm.rerates.antiselection_lambda_claims,
-        antisel_lapse=sens.antiselective_lapse, antisel_claims=sens.antiselective_claims,
-        term_scale=sens.termination_scale,
     )
 
 
-def _duration_step(P, i, rate, lives_prev, G_prev, H_prev, P_prev):
-    """Vectorised one-duration step. Returns (earned_agg, claims_agg, inyear,
-    lives_new, G_new, H_new, P_new)."""
+def _duration_step(P, sens, i, rate, lives_prev, G_prev, H_prev, P_prev):
+    """Vectorised one-duration step (sensitivities applied here). Returns
+    (earned_agg, claims_agg, inyear, lives_new, G_new, H_new, P_new)."""
     trend_i = P["trend"][i]
-    lapse = P["lapse_base"][:, i] * P["term_scale"] * (
-        1.0 + P["lam_lapse"] * (rate - trend_i) * P["antisel_lapse"])
+    lapse = P["lapse_base"][:, i] * sens.termination_scale * (
+        1.0 + P["lam_lapse"] * (rate - trend_i) * sens.antiselective_lapse)
     lapse = np.clip(lapse, 0.0, 1.0)
     term = 1.0 - (1.0 - lapse) * (1.0 - P["mort"][:, i])
     if i == 1:
@@ -89,18 +97,19 @@ def _duration_step(P, i, rate, lives_prev, G_prev, H_prev, P_prev):
     if i == 0:
         P_new = 1.0
     else:
-        P_new = (1.0 + P["aging_p"][i]) * P_prev + P["lam_claims"] * (rate - trend_i) * P["antisel_claims"]
-    claims = P["claim_base"][:, i] * P["selection"][:, i] * P["O"][i] * P_new * P["state_cc"] * avg
+        P_new = (1.0 + P["aging_p"][i]) * P_prev + P["lam_claims"] * (rate - trend_i) * sens.antiselective_claims
+    claims = (P["claim_base"][:, i] * sens.morbidity_scale * P["selection"][:, i]
+              * P["O"][i] * P_new * P["state_cc"] * avg)
     claims_agg = float(np.dot(P["weight"], claims))
 
     inyear = claims_agg / earned_agg if earned_agg else 0.0
     return earned_agg, claims_agg, inyear, lives_new, G_new, H_new, P_new
 
 
-def _floor_rate(P, i, lives_prev, G_prev, H_prev, P_prev, floor, lo, cap):
+def _floor_rate(P, sens, i, lives_prev, G_prev, H_prev, P_prev, floor, lo, cap):
     """Largest rate in [lo, cap] keeping in-year LR >= floor (LR decreases in rate)."""
     def inyear(r):
-        return _duration_step(P, i, r, lives_prev, G_prev, H_prev, P_prev)[2]
+        return _duration_step(P, sens, i, r, lives_prev, G_prev, H_prev, P_prev)[2]
     if inyear(cap) >= floor:
         return cap
     if inyear(lo) <= floor:
@@ -117,13 +126,17 @@ def _floor_rate(P, i, lives_prev, G_prev, H_prev, P_prev, floor, lo, cap):
 
 def solve_rerates(cells, asm: AssumptionSet, sens, state: str,
                   tol: float = 1e-3) -> tuple[list[float], dict]:
-    P = _precompute(cells, asm, sens, state)
+    return solve_with_precompute(precompute(cells, asm, state), asm, sens, tol)
+
+
+def solve_with_precompute(P, asm: AssumptionSet, sens,
+                          tol: float = 1e-3) -> tuple[list[float], dict]:
     n = P["n"]
     rr = asm.rerates
     spec = rr.specified_rerates
     floor = rr.in_year_lr_floor
     z, b_rule = rr.consecutive_z, max(1, rr.consecutive_b)
-    nc = len(cells)
+    nc = len(P["weight"])
 
     def forward(K: float):
         """Front-load floor-limited rerates for durations up to K, trend after.
@@ -146,13 +159,13 @@ def solve_rerates(cells, asm: AssumptionSet, sens, state: str,
                     cap = min(cap, z)
                 cap = max(cap, trend_i)
                 if d <= int(K):
-                    rate = _floor_rate(P, i, lives, G, H, Pv, floor, trend_i, cap)
+                    rate = _floor_rate(P, sens, i, lives, G, H, Pv, floor, trend_i, cap)
                 elif d == int(K) + 1 and (K - int(K)) > 0:
-                    fr = _floor_rate(P, i, lives, G, H, Pv, floor, trend_i, cap)
+                    fr = _floor_rate(P, sens, i, lives, G, H, Pv, floor, trend_i, cap)
                     rate = trend_i + (K - int(K)) * (fr - trend_i)
                 else:
                     rate = trend_i
-            ea, ca, _iy, lives, G, H, Pv = _duration_step(P, i, rate, lives, G, H, Pv)
+            ea, ca, _iy, lives, G, H, Pv = _duration_step(P, sens, i, rate, lives, G, H, Pv)
             cum_p += ea
             cum_c += ca
             rates[i] = rate
@@ -187,3 +200,78 @@ def solve_rerates(cells, asm: AssumptionSet, sens, state: str,
     _, achieved = forward(info["K"])
     info["achieved_lifetime_lr"] = float(achieved)
     return [float(r) for r in rates], info
+
+
+def project_aggregate(P, asm: AssumptionSet, sens, rates) -> tuple[float, float]:
+    """Fast numpy aggregate projection of a given rerate vector → (irr, lifetime_lr).
+
+    Mirrors ``project_cell`` + ``aggregate_cells`` at the aggregate level (rerate
+    effectiveness applied, as the projection does). Used by the stochastic
+    sensitivity loop to avoid the per-cell Python projection."""
+    from .metrics import irr as _irr
+
+    n = P["n"]
+    w = P["weight"]
+    o = asm.other
+    comm = asm.commission
+    eff = sens.rerate_effectiveness
+    rate0 = (rates[0] if len(rates) else 0.0) * eff
+    yr1_prem = P["base_prem"] * (1.0 + rate0)
+    comm_base = yr1_prem - np.where(P["planf"], comm.plan_f_offset, 0.0)
+    age_mult = np.where(P["age80"] & comm.age80_halving, 0.5, 1.0)
+
+    nc = len(w)
+    lives_prev = np.ones(nc)
+    G = 1.0
+    H = np.ones(nc)
+    P_prev = 1.0
+    ibnr_prev = np.zeros(nc)
+    rbc_prev = np.zeros(nc)
+    cum_c = cum_p = 0.0
+    ah = [0.0] * n
+    for i in range(n):
+        rate = rates[i] * eff
+        trend_i = P["trend"][i]
+        lapse = np.clip(P["lapse_base"][:, i] * sens.termination_scale
+                        * (1.0 + P["lam_lapse"] * (rate - trend_i) * sens.antiselective_lapse), 0.0, 1.0)
+        term = 1.0 - (1.0 - lapse) * (1.0 - P["mort"][:, i])
+        if i == 1:
+            term = np.minimum(term * P["dur2"], 1.0)
+        elif i >= 2:
+            term = np.minimum(term * P["dur3"], 1.0)
+        lives = lives_prev * (1.0 - term)
+        avg = (lives_prev + lives) / 2.0
+        G = G * (1.0 + rate)
+        H = H * (1.0 + P["aging_h"][:, i]) if i >= 1 else H
+        if i == 0:
+            Pv = 1.0
+        else:
+            Pv = (1.0 + P["aging_p"][i]) * P_prev + P["lam_claims"] * (rate - trend_i) * sens.antiselective_claims
+        earned = P["base_prem"] * G * H * avg
+        claims = (P["claim_base"][:, i] * sens.morbidity_scale * P["selection"][:, i]
+                  * P["O"][i] * Pv * P["state_cc"] * avg)
+        ea = float(np.dot(w, earned))
+        ca = float(np.dot(w, claims))
+        ibnr = o.ibnr_pct * claims
+        nii = (ibnr_prev + ibnr) / 2.0 * o.nier
+        commission = np.where(P["gi"], comm.gi_flat * avg,
+                              age_mult * P["comm_rate"][:, i] * comm_base * avg)
+        premium_tax = o.premium_tax * earned
+        oper_acq = o.oper_acq if i == 0 else 0.0
+        marketing = o.marketing_acq if i == 0 else 0.0
+        maintenance = o.maintenance * avg * (1.0 + o.inflation) ** (i + 1)
+        pretax = earned + nii - claims - commission - premium_tax - oper_acq - marketing - maintenance
+        tax = -o.tax_rate * pretax
+        at_income = pretax + tax
+        rbc = o.rbc_pct_of_prem * earned * o.rbc_factor * o.covariance
+        int_rbc = rbc * o.nier
+        tax_int = -o.tax_rate * int_rbc
+        ah_cell = rbc_prev - rbc + int_rbc + tax_int + at_income
+        ah[i] = float(np.dot(w, ah_cell))
+        cum_c += ca
+        cum_p += ea
+        ibnr_prev, rbc_prev = ibnr, rbc
+        lives_prev, P_prev = lives, Pv
+
+    lifetime = cum_c / cum_p if cum_p else 0.0
+    return _irr(ah), lifetime

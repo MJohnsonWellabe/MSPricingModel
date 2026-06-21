@@ -11,10 +11,10 @@ def test_premium_is_factor_product(asm):
     expected = (
         p.base_for_age(65)
         * p.plan_rel["G"]                                              # G anchored at 1.0
-        * normalized_factors(p.gender_rel, d.gender)["M"]
+        * normalized_factors({"M": 1 + p.gender_diff, "F": 1.0}, d.gender)["M"]
         * normalized_factors(p.uw_rel, d.uw)["OE"]
-        * normalized_factors(p.preferred_rel, d.preferred)["N"]
-        * normalized_factors(p.hhd_rel, d.hhd)["N"]
+        * normalized_factors({"N": 1 + p.preferred_diff, "Y": 1.0}, d.preferred)["N"]
+        * normalized_factors({"N": 1 + p.hhd_diff, "Y": 1.0}, d.hhd)["N"]
         * p.state_factor["IA"]
     )
     assert abs(L.premium_for_cell(asm, key, "IA") - expected) < 1e-9
@@ -24,9 +24,15 @@ def test_plan_anchored_at_g(asm):
     assert asm.premium.plan_rel["G"] == 1.0
 
 
+def test_premium_diff_defaults(asm):
+    assert abs(asm.premium.gender_diff - 0.15) < 1e-9
+    assert abs(asm.premium.hhd_diff - 0.14) < 1e-9
+    assert abs(asm.premium.preferred_diff - 0.10) < 1e-9
+
+
 def test_normalized_factor_weighted_mean_is_one(asm):
     d = asm.distribution
-    f = normalized_factors(asm.premium.gender_rel, d.gender)
+    f = normalized_factors({"M": 1 + asm.premium.gender_diff, "F": 1.0}, d.gender)
     mean = sum(d.gender[k] * f[k] for k in f)
     assert abs(mean - 1.0) < 1e-9
 

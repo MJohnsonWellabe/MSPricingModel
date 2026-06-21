@@ -22,7 +22,7 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
         ages=list(m["ages"]),
         plans=list(m["plans"]),
         base_cc={k: list(v) for k, v in m["base_cc"].items()},
-        gender_cc_rel={k: float(v) for k, v in m["gender_cc_rel"].items()},
+        gender_cc_diff=float(m["gender_cc_diff"]),
         state_factors=dict(m["state_factors"]),
         selection_factors=[dict(r) for r in m["selection_factors"]],
         cc_aging_by_duration=list(m["cc_aging_by_duration"]),
@@ -52,10 +52,10 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
     premium = PremiumAssumptions(
         base_by_issue_age={int(k): float(v) for k, v in p["base_by_issue_age"].items()},
         plan_rel={k: float(v) for k, v in p["plan_rel"].items()},
-        gender_rel={k: float(v) for k, v in p["gender_rel"].items()},
         uw_rel={k: float(v) for k, v in p["uw_rel"].items()},
-        preferred_rel={k: float(v) for k, v in p["preferred_rel"].items()},
-        hhd_rel={k: float(v) for k, v in p["hhd_rel"].items()},
+        gender_diff=float(p["gender_diff"]),
+        preferred_diff=float(p["preferred_diff"]),
+        hhd_diff=float(p["hhd_diff"]),
         state_factor={k: float(v) for k, v in p["state_factor"].items()},
     )
     dist = d["distribution"]
@@ -104,7 +104,7 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
         "schema_version": a.schema_version,
         "morbidity": {
             "ages": m.ages, "plans": m.plans,
-            "base_cc": m.base_cc, "gender_cc_rel": m.gender_cc_rel,
+            "base_cc": m.base_cc, "gender_cc_diff": m.gender_cc_diff,
             "state_factors": m.state_factors, "selection_factors": m.selection_factors,
             "cc_aging_by_duration": m.cc_aging_by_duration,
             "preferred_diff": m.preferred_diff, "hhd_diff": m.hhd_diff,
@@ -113,9 +113,9 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
         },
         "premium": {
             "base_by_issue_age": p.base_by_issue_age,
-            "plan_rel": p.plan_rel, "gender_rel": p.gender_rel,
-            "uw_rel": p.uw_rel, "preferred_rel": p.preferred_rel,
-            "hhd_rel": p.hhd_rel, "state_factor": p.state_factor,
+            "plan_rel": p.plan_rel, "uw_rel": p.uw_rel,
+            "gender_diff": p.gender_diff, "preferred_diff": p.preferred_diff,
+            "hhd_diff": p.hhd_diff, "state_factor": p.state_factor,
         },
         "rerates": {
             "solve": r.solve, "specified_rerates": r.specified_rerates,

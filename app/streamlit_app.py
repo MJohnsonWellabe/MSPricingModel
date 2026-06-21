@@ -16,6 +16,7 @@ from app.tabs import (
     documentation as t_documentation,
     experience_study as t_experience,
     output as t_output,
+    sensitivity as t_sensitivity,
 )
 
 
@@ -35,6 +36,7 @@ def main() -> None:
         "Assumptions",
         "Calculation",
         "Output",
+        "Sensitivity",
         "Documentation",
     ])
     with tabs[0]:
@@ -48,6 +50,8 @@ def main() -> None:
     with tabs[4]:
         t_output.render()
     with tabs[5]:
+        t_sensitivity.render()
+    with tabs[6]:
         t_documentation.render()
 
 

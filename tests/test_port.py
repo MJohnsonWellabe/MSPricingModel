@@ -28,16 +28,19 @@ def test_apply_sales_updates_distribution_and_premium(asm):
     assert new.premium.state_factor["TX"] < 1.0
 
 
-def test_apply_claims_recalibrates_level_and_state(asm):
-    cur_g_65 = L.base_claim_cost(asm, "M", 65, "G")
+def test_apply_claims_adopts_base_gender_state_selection(asm):
+    ages = asm.morbidity.ages
     claims = {
-        "dur1_cc": {"G": {65: cur_g_65 * 1.2}},   # observe 20% higher (vs male table)
+        "base_cc_by_age": {"G": {a: 1000.0 for a in ages}},   # flat observed G curve
+        "gender_diff": 0.20,
         "state_factors": {"CA": 1.5},
-        "selection": {}, "aging_by_duration": {},
+        "selection_rows": [{"issue_age": 65, "uw": "UW", "duration": 1, "factor": 0.8}],
+        "aging_by_duration": {},
     }
     new = apply_claims(asm, claims)
-    # plan G base table scaled up (factor uses gender-blend, so ~ within range)
-    assert new.morbidity.base_cc["G"][0] > asm.morbidity.base_cc["G"][0]
+    assert new.morbidity.base_cc["G"] == [1000.0] * len(ages)   # adopted age curve
+    assert new.morbidity.base_cc["F"] == asm.morbidity.base_cc["F"]  # plan F untouched
+    assert new.morbidity.gender_cc_diff == 0.20
     assert new.morbidity.state_factors["CA"] == 1.5
-    # plan F untouched
-    assert new.morbidity.base_cc["F"] == asm.morbidity.base_cc["F"]
+    assert new.morbidity.selection_factors == [
+        {"issue_age": 65, "uw": "UW", "duration": 1, "factor": 0.8}]

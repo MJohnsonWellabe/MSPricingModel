@@ -95,7 +95,7 @@ def build_assumptions(A) -> dict:
             "ages": ages, "plans": PLANS,
             # base_cc is converted to the gender blend in main() using the gender mix
             "base_cc": cc_female,
-            "gender_cc_rel": {"M": gender_ratio, "F": 1.0},
+            "gender_cc_diff": round(gender_ratio - 1.0, 6),
             "state_factors": state_factors,
             "selection_factors": selection,
             "cc_aging_by_duration": [_rnd(c("AL", r), 6) or 0.0 for r in range(3, 33)],
@@ -203,11 +203,17 @@ def build_factor_blocks(cells: list) -> tuple[dict, dict]:
     state_factor = {s: round(math.exp(sum(v) / len(v)), 6) for s, v in state_logs.items()}
     state_factor.setdefault("All", 1.0)
 
+    def diff(field, high, low):
+        e = eff(field)
+        return round(math.exp(e.get(high, 0.0) - e.get(low, 0.0)) - 1.0, 6)
+
     premium = {
         "base_by_issue_age": base_by_issue_age,
-        "plan_rel": plan_rel, "gender_rel": rel("gender"),
-        "uw_rel": rel("uw"), "preferred_rel": rel("preferred"),
-        "hhd_rel": rel("hhd"), "state_factor": state_factor,
+        "plan_rel": plan_rel, "uw_rel": rel("uw"),
+        "gender_diff": diff("gender", "M", "F"),
+        "preferred_diff": diff("preferred", "N", "Y"),
+        "hhd_diff": diff("hhd", "N", "Y"),
+        "state_factor": state_factor,
     }
 
     def marginal(field):
@@ -239,7 +245,8 @@ def main(path: str) -> None:
     # (OE) -> uw-mix blend, now that the distribution mix is known
     m = assumptions["morbidity"]
     gmix = distribution["gender"]
-    gblend = sum(gmix.get(g, 0.0) * m["gender_cc_rel"].get(g, 1.0) for g in m["gender_cc_rel"])
+    g_rel = {"M": 1.0 + m["gender_cc_diff"], "F": 1.0}
+    gblend = sum(gmix.get(g, 0.0) * g_rel[g] for g in g_rel)
     m["base_cc"] = {pl: [round(v * gblend, 4) for v in m["base_cc"][pl]] for pl in m["base_cc"]}
     t = assumptions["termination"]
     w_uw = distribution["uw"].get("UW", 0.0)

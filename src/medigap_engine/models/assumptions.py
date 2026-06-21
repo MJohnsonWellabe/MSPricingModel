@@ -21,7 +21,7 @@ class MorbidityAssumptions:
     ages: list[int]                          # attained-age axis for base claim costs
     plans: list[str]
     base_cc: dict[str, list[float]]          # plan -> base (gender-blend) claim cost by age
-    gender_cc_rel: dict[str, float]          # M/F relativity (normalised by gender mix at use)
+    gender_cc_diff: float                    # claims: male is this % above female
     state_factors: dict[str, float]          # state -> claim cost factor
     selection_factors: list[dict]            # rows of {duration, issue_age, uw, factor}
     cc_aging_by_duration: list[float]        # antiselection (col P) aging factor by duration
@@ -94,11 +94,11 @@ class PremiumAssumptions:
     normalisation); use ``lookups.premium_for_cell`` for the mix-normalised value.
     """
     base_by_issue_age: dict[int, float]
-    plan_rel: dict[str, float]
-    gender_rel: dict[str, float]
-    uw_rel: dict[str, float]
-    preferred_rel: dict[str, float]
-    hhd_rel: dict[str, float]
+    plan_rel: dict[str, float]               # G anchored at 1.0 (not normalised)
+    uw_rel: dict[str, float]                 # 3-level relativity (normalised by uw mix)
+    gender_diff: float                       # premium: male this % above female
+    preferred_diff: float                    # premium: non-preferred this % above preferred
+    hhd_diff: float                          # premium: non-hhd this % above hhd
     state_factor: dict[str, float]
 
     def base_for_age(self, issue_age: int) -> float:

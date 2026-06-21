@@ -86,14 +86,27 @@ view.
 
 ### Premium & distribution (factor models)
 - **Premium** = `base_by_issue_age (blend at plan G) × plan_rel × gender × uw ×
-  preferred × hhd × state`. You enter **relativities**; gender/uw/preferred/hhd are
-  normalised by the business mix (weighted-mean factor = 1, so the base blend is
-  preserved), **plan is anchored at G = 1.00**, and state is a raw factor. The
-  Premium tab shows the derived factors.
-- **Morbidity factors** work the same way: the base claim-cost table is the gender
-  blend, with a gender relativity (mix-normalised) and preferred/hhd differentials.
+  preferred × hhd × state`. Two-level dims (gender, preferred, hhd) are entered as a
+  single **differential** (e.g. male +15%, non-HHD +14%, non-preferred +10%) and the
+  Y/N factors are derived, normalised by the business mix so the blend is preserved;
+  **plan is anchored at G = 1.00**; uw is a relativity table; state is a raw factor.
+- **Morbidity** works the same way: gender claim cost is a single differential
+  (+15%) on the gender-blend base table; preferred/hhd are differentials.
 - **Distribution** = independent per-dimension weight factors that each sum to 1;
   a cell's weight is their product, re-normalised at run time.
+
+### Sensitivity (stochastic)
+The Sensitivity tab draws the five sensitivity factors from Normal(mean, std) each
+simulation, re-solves rerates to the same lifetime-LR target, and projects an IRR.
+It reports per-state IRR mean/median/confidence-interval and the share of sims that
+reached the target, plus an IRR histogram. The per-state precompute is reused across
+sims (numpy) so hundreds of simulations run in seconds.
+
+### Experience study coverage
+Sales data → distribution weights and the premium factor model. Claims data → base
+claim cost by plan & attained age, the gender differential, state morbidity factors,
+and UW selection by duration (claim-cost aging is a diagnostic). Lapse, mortality,
+trend, commission and economic assumptions are not in the data and stay manual.
 
 ### Notes / deliberate choices
 - Every input is an assumption — premium factors, distribution weight factors, the

@@ -160,10 +160,7 @@
     1691.8236
    ]
   },
-  "gender_cc_rel": {
-   "M": 1.15,
-   "F": 1.0
-  },
+  "gender_cc_diff": 0.15,
   "state_factors": {
    "state": null,
    "all": 1.0,
@@ -819,23 +816,14 @@
    "F": 1.411764,
    "N": 0.734117
   },
-  "gender_rel": {
-   "M": 1.072381,
-   "F": 0.932505
-  },
   "uw_rel": {
    "UW": 1.0,
    "OE": 1.0,
    "GI": 1.0
   },
-  "preferred_rel": {
-   "Y": 0.953463,
-   "N": 1.048809
-  },
-  "hhd_rel": {
-   "Y": 0.936586,
-   "N": 1.067708
-  },
+  "gender_diff": 0.15,
+  "preferred_diff": 0.1,
+  "hhd_diff": 0.14,
   "state_factor": {
    "TX": 1.0,
    "All": 1.013108,

@@ -61,11 +61,16 @@ def apply_sales(asm: AssumptionSet, sales: dict) -> AssumptionSet:
         p.base_by_issue_age = {int(a): round(math.exp(mu + e + plan_g), 4)
                                for a, e in eff(0).items()}
         p.plan_rel = {v: round(math.exp(e - plan_g), 6) for v, e in plan_eff.items()}
-        # other dims as centred relativities (normalised against the mix at use time)
-        p.gender_rel = {v: round(math.exp(e), 6) for v, e in eff(1).items()}
         p.uw_rel = {v: round(math.exp(e), 6) for v, e in eff(3).items()}
-        p.preferred_rel = {v: round(math.exp(e), 6) for v, e in eff(4).items()}
-        p.hhd_rel = {v: round(math.exp(e), 6) for v, e in eff(5).items()}
+
+        # two-level dims expressed as a single differential (high level over low)
+        def diff(idx, high, low):
+            e = eff(idx)
+            return round(math.exp(e.get(high, 0.0) - e.get(low, 0.0)) - 1.0, 6)
+
+        p.gender_diff = diff(1, "M", "F")
+        p.preferred_diff = diff(4, "N", "Y")
+        p.hhd_diff = diff(5, "N", "Y")
 
         # state premium factors: geomean of (state premium / cell average premium)
         st_logs = defaultdict(list)
@@ -81,29 +86,45 @@ def apply_sales(asm: AssumptionSet, sales: dict) -> AssumptionSet:
     return new
 
 
+def _nearest(curve: dict, age: int):
+    """Observed value at ``age``, else the nearest observed age."""
+    if not curve:
+        return None
+    if age in curve:
+        return curve[age]
+    return curve[min(curve, key=lambda a: abs(a - age))]
+
+
 def apply_claims(asm: AssumptionSet, claims: dict) -> AssumptionSet:
-    """Return a copy of ``asm`` with base claim-cost levels (per plan) and state
-    factors recalibrated to observed experience."""
+    """Return a copy of ``asm`` with the morbidity assumptions the claims data can
+    inform: base claim-cost curve by plan & attained age, the gender differential,
+    state morbidity factors, and UW selection factors. (Claim-cost aging is shown as
+    a diagnostic but not auto-adopted; lapse/mortality/trend are not in the data.)"""
     new = copy.deepcopy(asm)
     morb = new.morbidity
 
-    # per-plan level factor: observed duration-1 cc vs current (gender-blended) table
-    dur1 = claims["dur1_cc"]
+    # base claim cost by plan & attained age (gender blend); nearest-age fallback,
+    # scaled so the new table preserves the old per-plan level where data is thin
+    by_age = claims.get("base_cc_by_age", {})
     for plan in morb.plans:
-        ratios = []
-        for band, obs in dur1.get(plan, {}).items():
-            if obs <= 0:
-                continue
-            cur = 0.5 * (L.base_claim_cost(asm, "M", band, plan)
-                         + L.base_claim_cost(asm, "F", band, plan))
-            if cur > 0:
-                ratios.append(obs / cur)
-        if ratios:
-            factor = sum(ratios) / len(ratios)
-            morb.base_cc[plan] = [v * factor for v in morb.base_cc[plan]]
+        curve = by_age.get(plan)
+        if not curve:
+            continue
+        new_vals = [_nearest(curve, a) for a in morb.ages]
+        morb.base_cc[plan] = [round(v if v is not None else old, 4)
+                              for v, old in zip(new_vals, morb.base_cc[plan])]
+
+    # gender differential
+    if claims.get("gender_diff") is not None:
+        morb.gender_cc_diff = float(claims["gender_diff"])
 
     # state factors from observed relativities (keep existing where not observed)
-    for state, f in claims["state_factors"].items():
+    for state, f in claims.get("state_factors", {}).items():
         if f > 0:
             morb.state_factors[state] = f
+
+    # UW selection factors by (issue_age, uw, duration)
+    rows = claims.get("selection_rows")
+    if rows:
+        morb.selection_factors = [dict(r) for r in rows]
     return new

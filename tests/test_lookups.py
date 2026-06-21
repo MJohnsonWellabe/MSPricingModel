@@ -33,12 +33,11 @@ def test_claim_class_factors_preferred_only_for_uw(asm):
     assert uw != oe
 
 
-def test_base_claim_cost_gender_relativity(asm):
-    # male/female ratio equals the gender relativity ratio (normalisation cancels)
+def test_base_claim_cost_gender_differential(asm):
+    # male/female ratio equals (1 + gender_cc_diff) (normalisation cancels)
     m = L.base_claim_cost(asm, "M", 70, "G")
     f = L.base_claim_cost(asm, "F", 70, "G")
-    rel = asm.morbidity.gender_cc_rel
-    assert abs(m / f - rel["M"] / rel["F"]) < 1e-9
+    assert abs(m / f - (1.0 + asm.morbidity.gender_cc_diff)) < 1e-9
 
 
 def test_derive_two_level_reproduces_workbook():

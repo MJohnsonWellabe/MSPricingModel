@@ -22,20 +22,20 @@ def base_claim_cost(asm: AssumptionSet, gender: str, attained_age: int, plan: st
         for i, ag in enumerate(ages):
             if ag <= a:
                 idx = i
-    gfac = normalized_factors(morb.gender_cc_rel, asm.distribution.gender)
+    gfac = normalized_factors({"M": 1.0 + morb.gender_cc_diff, "F": 1.0}, asm.distribution.gender)
     return table[idx] * gfac.get(gender, 1.0)
 
 
 def premium_for_cell(asm: AssumptionSet, key, state: str) -> float:
     """Premium = base(blend at plan G) × plan relativity (G-anchored) × mix-normalised
-    gender/preferred/hhd/uw relativities × raw state factor."""
+    gender/preferred/hhd differentials and uw relativity × raw state factor."""
     p = asm.premium
     dist = asm.distribution
     base = p.base_for_age(key.issue_age)
     plan_f = p.plan_rel.get(key.plan, 1.0)
-    g = normalized_factors(p.gender_rel, dist.gender).get(key.gender, 1.0)
-    pr = normalized_factors(p.preferred_rel, dist.preferred).get(key.preferred, 1.0)
-    h = normalized_factors(p.hhd_rel, dist.hhd).get(key.hhd, 1.0)
+    g = normalized_factors({"M": 1.0 + p.gender_diff, "F": 1.0}, dist.gender).get(key.gender, 1.0)
+    pr = normalized_factors({"N": 1.0 + p.preferred_diff, "Y": 1.0}, dist.preferred).get(key.preferred, 1.0)
+    h = normalized_factors({"N": 1.0 + p.hhd_diff, "Y": 1.0}, dist.hhd).get(key.hhd, 1.0)
     uw = normalized_factors(p.uw_rel, dist.uw).get(key.uw_class, 1.0)
     sf = p.state_factor.get(state, p.state_factor.get("All", 1.0))
     return base * plan_f * g * pr * h * uw * sf

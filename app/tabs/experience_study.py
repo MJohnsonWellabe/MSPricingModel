@@ -104,36 +104,47 @@ def _claims_section() -> None:
     st.success(f"Parsed {m['n_rows']:,} rows; observed overall claim cost "
                f"${m['overall_cc']:,.0f}/life-year.")
 
-    st.markdown("**Duration-1 claim cost by plan & issue age**")
-    d1 = m["dur1_cc"]
-    ages = sorted({a for p in d1.values() for a in p})
-    df1 = pd.DataFrame({p: {a: round(d1.get(p, {}).get(a, float("nan")), 0) for a in ages}
-                        for p in sorted(d1)})
-    st.dataframe(df1, use_container_width=True)
+    st.markdown("**Base claim cost by plan & attained age** (gender blend)")
+    bca = m["base_cc_by_age"]
+    ages = sorted({a for p in bca.values() for a in p})
+    dfb = pd.DataFrame({p: {a: round(bca.get(p, {}).get(a, float("nan")), 0) for a in ages}
+                        for p in sorted(bca)})
+    st.dataframe(dfb, use_container_width=True, height=260)
 
-    cols = st.columns(2)
+    cols = st.columns(3)
     with cols[0]:
+        st.metric("Gender differential (M vs F)", f"{m['gender_diff'] * 100:.1f}%")
+    with cols[1]:
         st.markdown("**State factors (vs All)**")
         st.dataframe(pd.DataFrame(
             {"Factor": {s: round(f, 3) for s, f in sorted(m["state_factors"].items())}}),
-            use_container_width=True, height=240)
-    with cols[1]:
-        st.markdown("**Claim-cost aging by duration (cc_d / cc_1)**")
+            use_container_width=True, height=220)
+    with cols[2]:
+        st.markdown("**Claim-cost aging (diagnostic)**")
         st.dataframe(pd.DataFrame(
-            {"Ratio": {d: round(r, 3) for d, r in sorted(m["aging_by_duration"].items())}}),
-            use_container_width=True, height=240)
+            {"cc_d/cc_1": {d: round(r, 3) for d, r in sorted(m["aging_by_duration"].items())}}),
+            use_container_width=True, height=220)
 
-    st.caption("Adopting recalibrates the level of the base claim-cost tables (per "
-               "plan) and the state morbidity factors. Selection and aging above are "
-               "shown for your judgement and are not auto-applied.")
+    st.markdown("**UW selection by duration** (observed cc relative to all-UW)")
+    sel = {}
+    for (uw, d), f in m["selection"].items():
+        sel.setdefault(uw, {})[d] = round(f, 3)
+    st.dataframe(pd.DataFrame(sel), use_container_width=True, height=200)
+
+    st.caption("Adopt sets base claim cost by age, the gender differential, state morbidity "
+               "factors, and UW selection factors. Claim-cost aging is a diagnostic (not "
+               "auto-adopted). Lapse, mortality, trend, commission and economic assumptions "
+               "are not in the claims data and stay manual.")
     if st.button("Adopt morbidity", type="primary"):
         from app.state import set_assumptions
         set_assumptions(apply_claims(get_assumptions(), m))
-        st.success("Adopted base claim-cost level and state factors.")
+        st.success("Adopted base claim cost, gender differential, state factors, and selection.")
 
 
 def _ae_section() -> None:
     st.subheader("Actual-to-Expected (morbidity)")
+    st.caption("Expected is computed from the assumptions **currently loaded in the model** "
+               "(after any Adopt). Load claims, optionally Adopt, then review A/E here.")
     records = st.session_state.get("claims_records")
     if not records:
         st.info("Load claims data on the 'Claims → morbidity' tab first.")

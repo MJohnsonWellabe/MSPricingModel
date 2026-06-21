@@ -13,7 +13,9 @@ def test_round_trip_equains():
     assert b.other.discount_rate == a.other.discount_rate
     assert b.morbidity.ages == a.morbidity.ages
     assert b.morbidity.base_cc == a.morbidity.base_cc
-    assert b.morbidity.gender_cc_rel == a.morbidity.gender_cc_rel
+    assert b.morbidity.gender_cc_diff == a.morbidity.gender_cc_diff
+    assert b.premium.gender_diff == a.premium.gender_diff
+    assert b.premium.hhd_diff == a.premium.hhd_diff
     assert b.morbidity.preferred_diff == a.morbidity.preferred_diff
     assert b.termination.uw_lapse_rel == a.termination.uw_lapse_rel
     assert b.termination.base_lapse == a.termination.base_lapse
