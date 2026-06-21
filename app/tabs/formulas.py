@@ -54,14 +54,14 @@ def render() -> None:
     fs = get_formulas()
 
     top = st.columns([1, 1, 3])
-    if top[0].button("Validate formulas", type="primary"):
+    if top[0].button("Validate formulas", type="primary", key="formulas_validate"):
         errors = validate_formula_set(fs, sample_namespace())
         if errors:
             st.error("Found problems — fix these before running:")
             st.table(pd.DataFrame(errors, columns=["Formula", "Error"]))
         else:
             st.success("All formulas parsed and evaluated cleanly on a sample namespace.")
-    if top[1].button("Reset to defaults"):
+    if top[1].button("Reset to defaults", key="formulas_reset"):
         reset_formulas()
         st.rerun()
 
