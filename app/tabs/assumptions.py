@@ -36,13 +36,13 @@ def render() -> None:
     top = st.columns([1, 1, 2])
     with top[0]:
         st.download_button("Download JSON", assumptions_json(),
-                           "assumptions.json", "application/json")
+                           "assumptions.json", "application/json", key="asm_download")
     with top[1]:
-        if st.button("Reset to defaults"):
+        if st.button("Reset to defaults", key="asm_reset"):
             reset_assumptions()
             st.rerun()
     with top[2]:
-        up = st.file_uploader("Upload assumptions JSON", type=["json"])
+        up = st.file_uploader("Upload assumptions JSON", type=["json"], key="asm_upload")
         if up is not None:
             load_assumptions_json(up.getvalue().decode("utf-8"))
             st.success("Assumptions loaded.")
@@ -159,7 +159,7 @@ def _rerates(asm) -> None:
     r = asm.rerates
     st.subheader("Rerate strategy")
     r.solve = st.toggle("Solve rerates to hit target lifetime loss ratio",
-                        value=r.solve)
+                        value=r.solve, key="rr_solve")
     c = st.columns(3)
     r.target_lifetime_lr = c[0].number_input("Target lifetime LR", value=float(r.target_lifetime_lr),
                                              step=0.01, format="%.3f")
@@ -307,7 +307,7 @@ def _commission(asm) -> None:
     c.plan_f_offset = cc[1].number_input("Plan F premium offset", value=float(c.plan_f_offset),
                                          step=10.0)
     c.age80_halving = cc[2].toggle("Halve commission for issue age ≥ 80",
-                                   value=c.age80_halving)
+                                   value=c.age80_halving, key="comm_age80")
 
 
 def _economic(asm) -> None:

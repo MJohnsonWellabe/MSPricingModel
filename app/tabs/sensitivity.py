@@ -46,10 +46,11 @@ def render() -> None:
             specs[f] = (mean, std)
 
     c = st.columns(4)
-    n_sims = int(c[0].number_input("Simulations", value=100, min_value=10, max_value=2000, step=10))
-    ci_lo = c[1].number_input("CI low %", value=5.0, step=1.0)
-    ci_hi = c[2].number_input("CI high %", value=95.0, step=1.0)
-    seed = int(c[3].number_input("Seed", value=0, step=1))
+    n_sims = int(c[0].number_input("Simulations", value=100, min_value=10, max_value=2000,
+                                   step=10, key="sens_nsims"))
+    ci_lo = c[1].number_input("CI low %", value=5.0, step=1.0, key="sens_ci_lo")
+    ci_hi = c[2].number_input("CI high %", value=95.0, step=1.0, key="sens_ci_hi")
+    seed = int(c[3].number_input("Seed", value=0, step=1, key="sens_seed"))
 
     states = available_states()
     scope = st.radio("State scope", ["All states (combined book)", "Select states"], index=0,
@@ -60,7 +61,7 @@ def render() -> None:
         selected = ["All"]
 
     st.caption(f"≈ {n_sims} sims × {len(selected)} state(s). Large N is heavier in-browser.")
-    if st.button("Run stochastic analysis", type="primary"):
+    if st.button("Run stochastic analysis", type="primary", key="sens_run"):
         st.session_state.sens_job = {
             "states": list(selected), "i": 0, "results": {},
             "specs": specs, "n_sims": n_sims, "ci": (ci_lo, ci_hi), "seed": seed,
@@ -109,7 +110,7 @@ def _show_results(results: dict) -> None:
         })
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
-    state = st.selectbox("Histogram for state", list(results.keys()))
+    state = st.selectbox("Histogram for state", list(results.keys()), key="sens_hist_state")
     irrs = np.array([x for x in results[state]["irrs"] if x == x])  # drop nan
     if len(irrs):
         counts, edges = np.histogram(irrs, bins=20)

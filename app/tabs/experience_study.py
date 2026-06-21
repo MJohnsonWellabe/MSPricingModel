@@ -51,7 +51,7 @@ def _sales_section() -> None:
     st.subheader("Sales data")
     c = st.columns([1, 1, 2])
     c[0].download_button("Download template", load_template_csv("sales_template.csv"),
-                         "sales_template.csv", "text/csv")
+                         "sales_template.csv", "text/csv", key="sales_template_dl")
     if c[1].button("Load sample data", key="load_sales_sample"):
         st.session_state["sales_text"] = load_template_csv("sales_sample.csv")
     up = st.file_uploader("Upload sales CSV", type=["csv"], key="sales_upload")
@@ -114,7 +114,7 @@ def _sales_section() -> None:
             "Non-HHD differential", value=float(p.hhd_diff),
             step=0.01, format="%.3f", key="sales_hhd_diff")
 
-    if st.button("Adopt distribution & premiums", type="primary"):
+    if st.button("Adopt distribution & premiums", type="primary", key="sales_adopt"):
         from app.state import set_assumptions
         set_assumptions(suggested)
         st.success("Adopted into the distribution and premium factor tables.")
@@ -124,7 +124,7 @@ def _claims_section() -> None:
     st.subheader("Claims data")
     c = st.columns([1, 1, 2])
     c[0].download_button("Download template", load_template_csv("claims_template.csv"),
-                         "claims_template.csv", "text/csv")
+                         "claims_template.csv", "text/csv", key="claims_template_dl")
     if c[1].button("Load sample data", key="load_claims_sample"):
         st.session_state["claims_text"] = load_template_csv("claims_sample.csv")
     up = st.file_uploader("Upload claims CSV", type=["csv"], key="claims_upload")
@@ -179,7 +179,7 @@ def _claims_section() -> None:
                "factors, and UW selection factors. Claim-cost aging is a diagnostic (not "
                "auto-adopted). Lapse, mortality, trend, commission and economic assumptions "
                "are not in the claims data and stay manual.")
-    if st.button("Adopt morbidity", type="primary"):
+    if st.button("Adopt morbidity", type="primary", key="claims_adopt"):
         from app.state import set_assumptions
         set_assumptions(apply_claims(get_assumptions(), m))
         st.success("Adopted base claim cost, gender differential, state factors, and selection.")
@@ -195,7 +195,7 @@ def _ae_section() -> None:
         return
     dims = st.multiselect(
         "Group by", ["state", "plan", "issue_age", "uw_class", "duration"],
-        default=["state"],
+        default=["state"], key="ae_groupby",
         help="Choose nothing to roll up to a single all-data figure.")
     out = actual_to_expected(records, get_assumptions(), by=tuple(dims))
     df = pd.DataFrame(out)

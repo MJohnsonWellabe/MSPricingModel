@@ -22,7 +22,7 @@ def render() -> None:
     st.write(f"States to run: **{', '.join(config.states)}**  |  "
              f"Solve rerates: **{config.solve_rerates}**")
 
-    if st.button("Compute now", type="primary") or st.session_state.get("run_requested"):
+    if st.button("Compute now", type="primary", key="calc_run") or st.session_state.get("run_requested"):
         st.session_state.run_requested = False
         st.session_state.calc_job = {
             "states": list(config.states), "i": 0, "by_state": {}, "diag": {},
@@ -73,7 +73,7 @@ def render() -> None:
     result = st.session_state.get("run_result")
     if result:
         st.subheader("Inspect engine output")
-        state = st.selectbox("State", list(result.by_state.keys()))
+        state = st.selectbox("State", list(result.by_state.keys()), key="calc_state")
         st.caption("Full 30-year projection (aggregated, distribution-weighted).")
         series = result.by_state[state].series
         df = pd.DataFrame(series)

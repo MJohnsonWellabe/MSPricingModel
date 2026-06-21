@@ -52,11 +52,12 @@ def render() -> None:
     summary = pd.DataFrame(rows)
     st.dataframe(summary, hide_index=True, use_container_width=True)
     st.download_button("Download summary (CSV)", summary.to_csv(index=False),
-                       "summary.csv", "text/csv")
+                       "summary.csv", "text/csv", key="out_download")
 
     st.divider()
     st.subheader("State income statement")
-    state = st.selectbox("Select a state to drill into", list(result.by_state.keys()))
+    state = st.selectbox("Select a state to drill into", list(result.by_state.keys()),
+                         key="out_state")
     series = result.by_state[state].series
     data = {label: series[key] for key, label in _INCOME_ROWS}
     df = pd.DataFrame(data).T
