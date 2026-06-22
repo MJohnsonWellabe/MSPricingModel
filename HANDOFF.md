@@ -192,6 +192,12 @@ all expenses, pre/after-tax income, interest on capital, distributable income an
 every duration). The assumptions `.xlsx` artifact for Excel mapping is `docs/tx_assumptions.xlsx` (note:
 the `.xlsx` export does **not** carry `cell_premiums`/raw factors — those live in the workbook's
 Input/Assumptions sheets). Excel up/download of assumptions: `io/excel_export.py` ↔ `io/excel_import.py`.
+**Validating other states**: see `docs/VALIDATION_PLAN.md`. The combined workbook exposes one active
+state at a time via a selector that drives `Input!Z1` and the Aggregate Model recalc; capture each
+state's `Z1` + targets and diff with the state-parameterised harness (solve off). The **solve toggle is a
+single source of truth** (`asm.rerates.solve`) shared by the Configuration and Assumptions→Rerates tabs
+via `app/state.solve_toggle` — toggling either updates both. The Premium tab surfaces **per-cell
+premiums** (edit one state at a time; a Clear button reverts to the factor model).
 
 ## 9. UI tabs
 Configuration (scope, sensitivities, solve toggle, **full model export/import**, Run) ·

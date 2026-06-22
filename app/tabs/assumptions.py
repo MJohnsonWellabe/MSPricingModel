@@ -13,6 +13,7 @@ from app.state import (
     load_assumptions_json,
     load_assumptions_xlsx,
     reset_assumptions,
+    solve_toggle,
 )
 from medigap_engine.models.assumptions import PROJECTION_YEARS
 
@@ -174,8 +175,8 @@ def _morbidity(asm) -> None:
 def _rerates(asm) -> None:
     r = asm.rerates
     st.subheader("Rerate strategy")
-    r.solve = st.toggle("Solve rerates to hit target lifetime loss ratio",
-                        value=r.solve, key="rr_solve")
+    solve_toggle("rr_solve", "Solve rerates to hit target lifetime loss ratio",
+                 help="Linked to the Run toggle on the Configuration tab.")
     c = st.columns(3)
     r.target_lifetime_lr = c[0].number_input("Target lifetime LR", value=float(r.target_lifetime_lr),
                                              step=0.01, format="%.3f")
@@ -215,13 +216,10 @@ def _premium(asm) -> None:
 
     p = asm.premium
     d = asm.distribution
-    st.subheader("Premium = base (blend at plan G) × relativities")
-    st.caption("Enter relativities (how much premium goes up/down). Gender/preferred/hhd/uw "
-               "are normalised by the business mix so the blend is preserved; PLAN is anchored "
-               "at G = 1.00 (F/N relative to G). State is a raw factor.")
-    st.markdown("**Base premium by issue age** (plan-G blend)")
-    p.base_by_issue_age = _dict_editor(p.base_by_issue_age, "Base premium",
-                                       "prem_base", fmt="%.2f")
+    st.subheader("Premium factor model")
+    st.caption("Used when a cell has no per-cell premium below. Relativities say how much "
+               "premium goes up/down; gender/preferred/hhd/uw are normalised by the business "
+               "mix so the blend is preserved; PLAN is anchored at G = 1.00. State is raw.")
 
     def _diff(label, value, high, low, weights, key):
         v = st.number_input(label, value=float(value), step=0.01, format="%.3f", key=key)
@@ -229,27 +227,73 @@ def _premium(asm) -> None:
         st.caption(f"→ factors: {high} = {fac[high]:.4f}, {low} = {fac[low]:.4f}")
         return v
 
-    cols = st.columns(3)
-    with cols[0]:
-        st.markdown("**Plan relativities (G = 1.00)**")
-        p.plan_rel = _dict_editor(p.plan_rel, "Relativity", "prem_plan")
-        p.preferred_diff = _diff("Non-preferred premium higher by", p.preferred_diff,
-                                 "N", "Y", d.preferred, "prem_pref")
-    with cols[1]:
+    # Row 1 — differentials (consistent heights, each with its derived factors)
+    st.markdown("**Relativity differentials**")
+    dc = st.columns(3)
+    with dc[0]:
         p.gender_diff = _diff("Male premium higher than female by", p.gender_diff,
                               "M", "F", d.gender, "prem_gender")
+    with dc[1]:
+        p.preferred_diff = _diff("Non-preferred premium higher by", p.preferred_diff,
+                                 "N", "Y", d.preferred, "prem_pref")
+    with dc[2]:
         p.hhd_diff = _diff("Non-HHD premium higher by", p.hhd_diff,
                            "N", "Y", d.hhd, "prem_hhd")
-    with cols[2]:
+
+    # Row 2 — base-by-age, plan/uw and state-factor tables (equal-height columns)
+    tc = st.columns([2, 1, 1])
+    with tc[0]:
+        st.markdown("**Base premium by issue age** (plan-G blend)")
+        p.base_by_issue_age = _dict_editor(p.base_by_issue_age, "Base premium",
+                                           "prem_base", fmt="%.2f")
+    with tc[1]:
+        st.markdown("**Plan rel. (G=1.00)**")
+        p.plan_rel = _dict_editor(p.plan_rel, "Relativity", "prem_plan")
         st.markdown("**UW relativities**")
         p.uw_rel = _dict_editor(p.uw_rel, "Relativity", "prem_uw")
         ufac = normalized_factors(p.uw_rel, d.uw)
-        st.caption("→ factors: " + ", ".join(f"{k} = {v:.4f}" for k, v in ufac.items()))
-    st.markdown("**State factor** (raw)")
-    p.state_factor = _dict_editor(p.state_factor, "Factor", "prem_state")
-    st.caption("The one-time pull-forward of current premium to the pricing period is "
-               "set on the Pull forward tab; future premium changes are driven by the "
-               "rerate solver.")
+        st.caption("→ " + ", ".join(f"{k} = {v:.4f}" for k, v in ufac.items()))
+    with tc[2]:
+        st.markdown("**State factor** (raw)")
+        p.state_factor = _dict_editor(p.state_factor, "Factor", "prem_state")
+    st.caption("The one-time pull-forward of current premium to the pricing period is set "
+               "on the Pull forward tab; future premium changes are driven by the rerate solver.")
+
+    _cell_premiums(p)
+
+
+def _cell_premiums(p) -> None:
+    """Per-cell premiums (exact rates from the workbook Input sheet) override the factor
+    model above; surfaced read/edit one state at a time."""
+    st.divider()
+    st.markdown("**Per-cell premiums** — exact rates that override the factor model")
+    cp = p.cell_premiums
+    if not cp:
+        st.caption("None loaded — the factor model above is used for every cell. Per-cell "
+                   "premiums are populated from the workbook Input sheet by "
+                   "`tools/generate_seed.py`.")
+        return
+    states = sorted({s for m in cp.values() for s in m})
+    st.caption(f"{len(cp)} cells × {len(states)} states loaded. When a cell+state is present "
+               "here it is used verbatim (no pull-forward), overriding the factor model. "
+               "Edit one state at a time below.")
+    left, right = st.columns([1, 3])
+    with left:
+        default_ix = states.index("TX") if "TX" in states else 0
+        sel = st.selectbox("State", states, index=default_ix, key="prem_cell_state")
+        if st.button("Clear per-cell premiums", key="prem_cell_clear",
+                     help="Drop all per-cell premiums and fall back to the factor model."):
+            p.cell_premiums = {}
+            st.rerun()
+    with right:
+        col = f"Premium ({sel})"
+        df = pd.DataFrame({col: {label: m.get(sel) for label, m in cp.items()}})
+        ed = st.data_editor(
+            df, use_container_width=True, height=360, key=f"prem_cell_editor_{sel}",
+            column_config={col: st.column_config.NumberColumn(format="%.2f")})
+        for label, v in ed[col].items():
+            if v is not None and not pd.isna(v):
+                cp.setdefault(label, {})[sel] = float(v)
 
 
 def _distribution(asm) -> None:

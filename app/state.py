@@ -68,6 +68,23 @@ def get_run_config() -> RunConfig:
     return st.session_state.get("run_config") or RunConfig(states=["All"])
 
 
+def solve_toggle(key: str, label: str, help: str | None = None) -> bool:
+    """Render a rerate-solve toggle backed by the single source of truth
+    ``asm.rerates.solve``. The Configuration tab and the Assumptions->Rerates tab
+    both call this with their own widget key; because each reconciles its widget to
+    the shared assumption value *before* instantiation and writes back on change,
+    toggling either one updates the other (and the run) — they never drift.
+    """
+    solve = bool(get_assumptions().rerates.solve)
+    if st.session_state.get(key) != solve:   # seed / reconcile external loads (reset, upload)
+        st.session_state[key] = solve
+
+    def _on_change() -> None:
+        get_assumptions().rerates.solve = bool(st.session_state[key])
+
+    return bool(st.toggle(label, key=key, on_change=_on_change, help=help))
+
+
 def assumptions_json() -> str:
     return json.dumps(assumptions_to_dict(st.session_state.assumptions), indent=1)
 

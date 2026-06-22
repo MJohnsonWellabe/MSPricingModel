@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from app.state import solve_toggle
 from medigap_engine.io.defaults import available_states
 from medigap_engine.models.config import RunConfig
 from medigap_engine.models.sensitivities import SensitivitySet
@@ -19,10 +20,10 @@ def render() -> None:
             value=False, key="cfg_use_study",
             help="When on, assumptions ported from the Experience Study tab are used.",
         )
-        solve = st.toggle(
-            "Solve rerates to target lifetime loss ratio",
-            value=True, key="cfg_solve",
-            help="When off, the specified rerate schedule on the Assumptions tab is used.",
+        solve = solve_toggle(
+            "cfg_solve", "Solve rerates to target lifetime loss ratio",
+            help="Linked to the Assumptions->Rerates tab. When off, the specified "
+            "rerate schedule on the Assumptions tab is used.",
         )
 
     with col2:
