@@ -1,34 +1,28 @@
 """Derive morbidity (claim-cost) assumptions from raw claims experience.
 
-Exposure is measured in **life-years**: a row's exposure is ``cnt * earned /
-annualized_prem`` (count times the fraction-of-year of coverage the earned premium
-implies), falling back to ``cnt / 12`` only when earned/annualized premium are not
-supplied. This is correct whether the data is reported monthly, quarterly or
-annually — using a hardcoded ``cnt / 12`` on non-monthly rows would understate
-exposure and inflate the per-life claim cost. Observed annual claim cost per life is
-``sum(adj_claims) / sum(exposure)`` over any grouping.
+Exposure is measured in **life-years**: a row's exposure is its explicit ``exposure``
+column when supplied, otherwise the ``cnt`` column (each row already carries
+annualized exposure / life-years, not a monthly headcount). Observed annual claim cost
+per life is ``sum(adj_claims) / sum(exposure)`` over any grouping. (A hardcoded
+``cnt/12`` — or deriving exposure from ``earned/annualized_prem`` — over-divides this
+data, since ``annualized_prem ≈ 12×earned``, and inflates the cost ~12×.)
 
 Claim costs are keyed by **issue age** (collapsed to the model's key issue-age bands
-by ``normalize_claims``), matching how the engine indexes base claim cost — not by
-attained age. Outputs are levels/relativities suitable for recalibrating the existing
-assumption tables (see ``port.py``).
+by ``normalize_claims``), matching how the engine indexes base claim cost.
 """
 from __future__ import annotations
 
+from .decomp import differential, fit_main_effects
 from .schema import normalize_claims
-
-MONTHS_PER_YEAR = 12.0
 
 
 def exposure_life_years(row: dict) -> float:
-    """Life-years of exposure for a claims row: ``cnt * earned/annualized_prem``
-    (the earned fraction of a policy-year), or ``cnt / 12`` if premium is absent."""
-    cnt = row.get("cnt", 0.0) or 0.0
-    earned = row.get("earned", 0.0) or 0.0
-    annual = row.get("annualized_prem", 0.0) or 0.0
-    if earned > 0 and annual > 0:
-        return cnt * (earned / annual)
-    return cnt / MONTHS_PER_YEAR
+    """Life-years of exposure for a claims row: the explicit ``exposure`` column if
+    present, else ``cnt`` (which already carries annualized life-years of exposure)."""
+    exp = row.get("exposure")
+    if exp:
+        return float(exp)
+    return float(row.get("cnt", 0.0) or 0.0)
 
 
 def _cc(claims: float, exposure_life_years: float) -> float:
@@ -59,6 +53,7 @@ def derive_morbidity(rows) -> dict:
     by_age_uw_dur: dict = {}         # (issue_age, uw, duration) -> for selection
     by_age: dict = {}                # issue_age -> for selection normalisation
     by_dur: dict = {}
+    by_cell_full: dict = {}          # (issue_age,gender,plan,uw,duration) -> for the fit
     total = acc()
 
     for r in canon:
@@ -66,11 +61,13 @@ def derive_morbidity(rows) -> dict:
         cl = r["adj_claims"]
         total["claims"] += cl
         total["exp"] += exp
+        fkey = (r["issue_age"], r["gender"], r["plan"], r["uw_class"], r["duration"])
         for d, key in ((by_state, r["state"]), (by_gender, r["gender"]),
                        (by_dur, r["duration"]), (by_age, r["issue_age"]),
                        (by_uw_dur, (r["uw_class"], r["duration"])),
                        (by_age_uw_dur, (r["issue_age"], r["uw_class"], r["duration"])),
-                       (by_plan_issue, (r["plan"], r["issue_age"]))):
+                       (by_plan_issue, (r["plan"], r["issue_age"])),
+                       (by_cell_full, fkey)):
             cell = d.setdefault(key, acc())
             cell["claims"] += cl
             cell["exp"] += exp
@@ -83,10 +80,13 @@ def derive_morbidity(rows) -> dict:
     dur1_cc = {p: {a: _cc(v["claims"], v["exp"]) for a, v in ages.items()}
                for p, ages in by_plan_age_d1.items()}
 
-    # base claim-cost level by (plan, ISSUE age) — matches the engine's indexing
+    # base claim-cost level by (plan, ISSUE age) — matches the engine's indexing —
+    # and the exposure behind each band (life-years) for credibility weighting
     base_cc_by_issue_age: dict = {}
+    base_cc_exposure: dict = {}
     for (plan, age), v in by_plan_issue.items():
         base_cc_by_issue_age.setdefault(plan, {})[age] = _cc(v["claims"], v["exp"])
+        base_cc_exposure.setdefault(plan, {})[age] = v["exp"]
 
     # gender differential (male vs female), de-meaned by exposure
     g_cc = {g: _cc(v["claims"], v["exp"]) for g, v in by_gender.items()}
@@ -114,14 +114,34 @@ def derive_morbidity(rows) -> dict:
     cc1 = dur_cc.get(1, 0.0)
     aging_by_duration = {d: (cc / cc1 if cc1 else 1.0) for d, cc in dur_cc.items()}
 
+    # ISOLATED effects via the multivariate fit over (issue_age,gender,plan,uw,duration):
+    # gender differential holding others fixed, and an aging curve that strips the
+    # cell-mix / UW-selection confounding from the raw cc_d/cc_1 ratio.
+    fobs = [(k, _cc(v["claims"], v["exp"]), v["exp"]) for k, v in by_cell_full.items()
+            if v["exp"] > 0]
+    fit = fit_main_effects(fobs, n_dims=5)
+    factors = fit["factors"]
+    gender_diff_isolated = differential(factors, 1, "M", "F")
+    # aging curve: duration factors normalised to duration 1, forced non-decreasing >=1
+    dfac = factors[4]
+    d1 = dfac.get(1) or (dfac.get(min(dfac)) if dfac else 1.0) or 1.0
+    aging_curve: dict = {}
+    running = 1.0
+    for d in sorted(dfac):
+        running = max(running, dfac[d] / d1)
+        aging_curve[d] = round(max(1.0, running), 6)
+
     return {
         "dur1_cc": dur1_cc,
         "base_cc_by_issue_age": base_cc_by_issue_age,
+        "base_cc_exposure": base_cc_exposure,
         "gender_diff": round(gender_diff, 6),
+        "gender_diff_isolated": round(gender_diff_isolated, 6),
         "state_factors": state_factors,
         "selection": selection,
         "selection_rows": selection_rows,
         "aging_by_duration": aging_by_duration,
+        "aging_curve": aging_curve,
         "overall_cc": overall,
         "n_rows": len(canon),
         "total_exposure": total["exp"],

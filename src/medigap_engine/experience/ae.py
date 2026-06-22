@@ -16,10 +16,10 @@ from .claims import exposure_life_years
 def _trend_factor(asm: AssumptionSet, duration: int) -> float:
     # base claim cost is already pulled forward to the year-1 level; the projection
     # trend compounds from year 1->2 onward (year-1 factor is 1.0).
-    O = 1.0
+    cum = 1.0
     for d in range(2, duration + 1):
-        O *= 1.0 + L.trend_year(asm, d)
-    return O
+        cum *= 1.0 + L.trend_year(asm, d)
+    return cum
 
 
 def expected_cc_per_life(asm: AssumptionSet, gender: str, issue_age: int,

@@ -1,4 +1,3 @@
-from medigap_engine.engine import lookups as L
 from medigap_engine.experience.port import apply_claims, apply_sales
 
 
@@ -62,3 +61,40 @@ def test_apply_claims_parts_and_revert_to_pricing(asm):
     assert new.morbidity.base_cc["G"][-1] == asm.morbidity.base_cc["G"][-1]  # revert to pricing
     assert new.morbidity.gender_cc_diff == asm.morbidity.gender_cc_diff      # not adopted
     assert new.morbidity.state_factors == old_state                          # not adopted
+
+
+def test_apply_sales_builds_per_state_grids(asm):
+    # TX sales are all UW; CA sales are all GI -> per-state grids with different UW mix
+    k_uw = (65, "M", "G", "UW", "Y", "Y")
+    k_gi = (65, "M", "G", "GI", "Y", "Y")
+    sales = {
+        "counts": {k_uw: 100.0, k_gi: 100.0},
+        "weights": {}, "avg_premium": {}, "state_premiums": {},
+        "state_counts": {k_uw: {"TX": 100.0}, k_gi: {"CA": 100.0}},
+    }
+    new = apply_sales(asm, sales, parts=("distribution",))
+    assert set(new.distribution.by_state) == {"TX", "CA"}
+    assert new.distribution.uw_mix("TX") == {"UW": 1.0}
+    assert new.distribution.uw_mix("CA") == {"GI": 1.0}
+    from medigap_engine.models.cell import CellKey
+    # the TX grid weights the UW cell, not the GI cell; national fallback for other states
+    assert new.distribution.grid_weight(CellKey(*k_uw), "TX") > 0
+    assert new.distribution.grid_weight(CellKey(*k_gi), "TX") == 0.0
+
+
+def test_apply_claims_aging_monotone_increments(asm):
+    claims = {"aging_curve": {1: 1.0, 2: 1.1, 3: 1.1, 4: 1.25}}
+    new = apply_claims(asm, claims, parts=("aging",))
+    inc = new.morbidity.cc_aging_by_duration
+    assert inc[0] == 0.0                 # duration 1 has no aging
+    assert all(x >= 0.0 for x in inc)    # never reduces claims
+    assert abs(inc[1] - 0.1) < 1e-6      # 1.1/1.0 - 1
+
+
+def test_apply_claims_credibility_blends_toward_pricing(asm):
+    old = asm.morbidity.base_cc["G"][0]
+    claims = {"base_cc_by_issue_age": {"G": {asm.morbidity.ages[0]: old + 1000.0}},
+              "base_cc_exposure": {"G": {asm.morbidity.ages[0]: 250.0}}}
+    # Z = sqrt(250/1000) = 0.5 -> halfway between pricing and experience
+    new = apply_claims(asm, claims, parts=("base_cc",), credibility_standard=1000.0)
+    assert abs(new.morbidity.base_cc["G"][0] - (old + 500.0)) < 1e-3

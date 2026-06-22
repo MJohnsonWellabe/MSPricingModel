@@ -49,13 +49,13 @@ def precompute(cells, asm: AssumptionSet, state: str) -> dict:
     age80 = np.zeros(nc, dtype=bool)
     for ci, c in enumerate(cells):
         k = c.key
-        cls = L.claim_class_factors(asm, k.uw_class, k.preferred, k.hhd)
+        cls = L.claim_class_factors(asm, k.uw_class, k.preferred, k.hhd, state)
         gi[ci] = k.uw_class == "GI"
         planf[ci] = k.plan == "F"
         age80[ci] = k.issue_age >= 80
         # claims base cost is by ISSUE age (constant across duration), matching the
         # workbook Output/Aggregate; mortality & aging-rerate stay attained-age
-        cell_claim_base = L.base_claim_cost(asm, k.gender, k.issue_age, k.plan) * cls
+        cell_claim_base = L.base_claim_cost(asm, k.gender, k.issue_age, k.plan, state) * cls
         for i in range(n):
             d = i + 1
             attained = k.issue_age + d - 1

@@ -46,6 +46,7 @@ def aggregate_sales(rows) -> dict:
         "weights": weights,
         "avg_premium": avg_premium,
         "state_premiums": state_premiums,
+        "state_counts": state_count,    # cell-key -> {state: application count}
         "counts": counts,
         "n_rows": len(canon),
         "total_count": total,

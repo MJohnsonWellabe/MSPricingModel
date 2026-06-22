@@ -7,7 +7,8 @@ from __future__ import annotations
 from ..models.assumptions import AssumptionSet, derive_two_level, normalized_factors
 
 
-def base_claim_cost(asm: AssumptionSet, gender: str, age: int, plan: str) -> float:
+def base_claim_cost(asm: AssumptionSet, gender: str, age: int, plan: str,
+                    state: str | None = None) -> float:
     """Base (gender-blend) claim cost by **issue age** and plan, scaled by the gender
     relativity normalised against the gender mix and brought forward to the pricing
     period by the one-time claims pull-forward. Ages outside the table clamp to the
@@ -23,7 +24,8 @@ def base_claim_cost(asm: AssumptionSet, gender: str, age: int, plan: str) -> flo
         for i, ag in enumerate(ages):
             if ag <= a:
                 idx = i
-    gfac = normalized_factors({"M": 1.0 + morb.gender_cc_diff, "F": 1.0}, asm.distribution.gender)
+    gfac = normalized_factors({"M": 1.0 + morb.gender_cc_diff, "F": 1.0},
+                              asm.distribution.gender_mix(state))
     pf = asm.pull_forward
     bring_forward = (1.0 + pf.claims_trend) ** pf.duration
     return table[idx] * gfac.get(gender, 1.0) * bring_forward
@@ -35,35 +37,38 @@ def premium_for_cell(asm: AssumptionSet, key, state: str) -> float:
     forward to the pricing period by the one-time premium pull-forward (same window
     as the claims pull-forward)."""
     p = asm.premium
-    # exact per-cell premium (already at the pricing level), if provided
+    pf = asm.pull_forward
+    bring_forward = (1.0 + pf.premium_trend) ** pf.duration
+    # exact per-cell premium, still subject to the one-time premium pull-forward
+    # (bring_forward is 1.0 when premium_trend is 0, so per-cell premiums are used
+    # verbatim by default; a non-zero trend stresses them through to loss ratios)
     cp = p.cell_premiums.get(key.label())
     if cp:
         v = cp.get(state, cp.get("All"))
         if v is not None:
-            return float(v)
+            return float(v) * bring_forward
     dist = asm.distribution
     base = p.base_for_age(key.issue_age)
     plan_f = p.plan_rel.get(key.plan, 1.0)
-    g = normalized_factors({"M": 1.0 + p.gender_diff, "F": 1.0}, dist.gender).get(key.gender, 1.0)
-    pr = normalized_factors({"N": 1.0 + p.preferred_diff, "Y": 1.0}, dist.preferred).get(key.preferred, 1.0)
-    h = normalized_factors({"N": 1.0 + p.hhd_diff, "Y": 1.0}, dist.hhd).get(key.hhd, 1.0)
-    uw = normalized_factors(p.uw_rel, dist.uw).get(key.uw_class, 1.0)
+    g = normalized_factors({"M": 1.0 + p.gender_diff, "F": 1.0}, dist.gender_mix(state)).get(key.gender, 1.0)
+    pr = normalized_factors({"N": 1.0 + p.preferred_diff, "Y": 1.0}, dist.preferred_mix(state)).get(key.preferred, 1.0)
+    h = normalized_factors({"N": 1.0 + p.hhd_diff, "Y": 1.0}, dist.hhd_mix(state)).get(key.hhd, 1.0)
+    uw = normalized_factors(p.uw_rel, dist.uw_mix(state)).get(key.uw_class, 1.0)
     sf = p.state_factor.get(state, p.state_factor.get("All", 1.0))
-    pf = asm.pull_forward
-    bring_forward = (1.0 + pf.premium_trend) ** pf.duration
     return base * plan_f * g * pr * h * uw * sf * bring_forward
 
 
-def claim_class_factors(asm: AssumptionSet, uw_class: str, preferred: str, hhd: str) -> float:
+def claim_class_factors(asm: AssumptionSet, uw_class: str, preferred: str, hhd: str,
+                        state: str | None = None) -> float:
     """Preferred factor (applied only for UW class) times the household-discount
     factor. Both are derived from a differential and the distribution mix so the
     weighted mean is 1 (the base claim cost already carries the blend)."""
     morb = asm.morbidity
     dist = asm.distribution
     # raw factors (workbook) take precedence over mix-normalised derivation
-    pref_f = morb.preferred_factors or derive_two_level(dist.preferred.get("Y", 0.5),
+    pref_f = morb.preferred_factors or derive_two_level(dist.preferred_mix(state).get("Y", 0.5),
                                                         morb.preferred_diff)
-    hhd_f = morb.hhd_factors or derive_two_level(dist.hhd.get("Y", 0.5), morb.hhd_diff)
+    hhd_f = morb.hhd_factors or derive_two_level(dist.hhd_mix(state).get("Y", 0.5), morb.hhd_diff)
     pref = pref_f.get(preferred, 1.0) if uw_class == "UW" else 1.0
     return pref * hhd_f.get(hhd, 1.0)
 

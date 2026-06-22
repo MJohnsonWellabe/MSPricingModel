@@ -201,14 +201,29 @@ single source of truth** (`asm.rerates.solve`) shared by the Configuration and A
 via `app/state.solve_toggle` — toggling either updates both. The Premium tab surfaces **per-cell
 premiums** (edit one state at a time; a Clear button reverts to the factor model).
 
-**Experience study** (`experience/claims.py`, `ae.py`, `port.py`): exposure is **life-years =
-`cnt × earned/annualized_prem`** (the earned fraction of a policy-year), falling back to `cnt/12` only
-when premium is absent — using a hardcoded `cnt/12` on non-monthly rows over-divides and inflates the
-observed claim cost. Derived claim cost is keyed by **issue age** (bucketed to the key bands by
-`schema.nearest_band`), matching the engine. `apply_claims`/`apply_sales` take a `parts` argument so the
-UI can **adopt each table separately** (base cost / gender / state / selection; distribution / premium)
-or all at once; where an issue-age band has no experience the **current pricing value is kept** (revert
-to pricing — no smoothing/extrapolation). `ae.expected_cc_per_life` also indexes base cost by issue age.
+**Experience study** (`experience/{claims,ae,port,sales,decomp,credibility}.py`):
+- **Exposure = life-years** = the explicit `exposure` column if present, else the `cnt` column
+  (`exposure_life_years`). `cnt` already carries annualized exposure; the old `cnt/12` (and
+  `earned/annualized_prem`, which is ~1/12 since `annualized_prem ≈ 12×earned`) over-divided and
+  inflated claim cost ~12×. Claim cost is keyed by **issue age** (bucketed by `schema.nearest_band`).
+- **Isolated differentials** (`decomp.fit_main_effects`, minimum-bias iterative main-effects on
+  log-values): premium and claims differentials (gender/preferred/HHD/plan/UW) hold the other
+  variables fixed, instead of a confounded marginal (gender went 8.8%→~12% on the owner's data).
+- **Credibility** (`credibility.py`): base claim cost is blended `Z·experience + (1−Z)·pricing`,
+  `Z = min(1, √(exposure/standard))`; the full-credibility standard is a Claims-tab input. Bands with
+  no experience keep the pricing value (revert to pricing).
+- **Aging** is isolated from the duration main-effect, forced **monotone ≥1**, converted to the
+  engine's incremental `cc_aging_by_duration`, and has its own **Adopt aging** button.
+- `apply_claims`/`apply_sales` take `parts` so each table adopts separately. The UI shows
+  **current vs suggested** and the **joint plan×age×UW grid**.
+- **Per-state distribution**: `DistributionAssumptions.by_state` holds per-state
+  `{joint,gender,preferred,hhd}` (GI/OE/UW & plan mix vary by state); `apply_sales` builds them from the
+  per-(cell,state) sales counts. The engine threads `state` into the mix-normalisations
+  (`gender_mix/uw_mix/...`, `base_claim_cost`, `claim_class_factors`) and `run._state_cells` reweights
+  cells by `grid_weight(key,state)`. **Empty `by_state` ⇒ national fallback (TX stays exact).**
+- **Premium pull-forward** now applies to the per-cell premium branch in `lookups.premium_for_cell`
+  (`× (1+premium_trend)^duration`), so a premium-increase stress flows to loss ratios; `premium_trend=0`
+  (default) leaves per-cell premiums verbatim, so TX stays exact.
 
 ## 9. UI tabs
 Configuration (scope, sensitivities, solve toggle, **full model export/import**, Run) ·

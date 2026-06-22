@@ -14,6 +14,7 @@ import streamlit as st
 from app.state import get_assumptions
 from medigap_engine.experience.ae import actual_to_expected
 from medigap_engine.experience.claims import derive_morbidity
+from medigap_engine.experience.credibility import blend, credibility_z
 from medigap_engine.experience.port import apply_claims, apply_sales
 from medigap_engine.experience.sales import aggregate_sales
 from medigap_engine.experience.schema import SALES_COLUMNS, CLAIMS_COLUMNS
@@ -75,45 +76,61 @@ def _sales_section() -> None:
     suggested = apply_sales(get_assumptions(), agg)
     d = suggested.distribution
     p = suggested.premium
+    cur = get_assumptions()
 
-    st.markdown("#### Suggested distribution weight factors")
-    st.caption("Adopt fits a joint plan × issue-age × UW grid from the data plus "
-               "gender / preferred / HHD marginals. The marginal summaries below are "
-               "derived from that grid for reference.")
-    st.markdown("**By issue age**")
-    st.dataframe(_factor_df(d.by_issue_age, "Weight"), use_container_width=True)
-    cols = st.columns(3)
-    with cols[0]:
-        st.markdown("**Gender**"); st.dataframe(_factor_df(d.gender, "Weight"), use_container_width=True)
-        st.markdown("**Preferred**"); st.dataframe(_factor_df(d.preferred, "Weight"), use_container_width=True)
-    with cols[1]:
-        st.markdown("**Plan**"); st.dataframe(_factor_df(d.plan, "Weight"), use_container_width=True)
-        st.markdown("**HHD**"); st.dataframe(_factor_df(d.hhd, "Weight"), use_container_width=True)
-    with cols[2]:
-        st.markdown("**UW**"); st.dataframe(_factor_df(d.uw, "Weight"), use_container_width=True)
+    st.markdown("#### Suggested distribution — joint plan × issue-age × UW grid")
+    st.caption("This is the same joint grid the model prices with (F/G/N split by issue "
+               "age and UW mix), fit from the data. UW mix also varies by state (below).")
+    grid_rows = {}
+    for plan, ag in d.joint.items():
+        for a, uws in ag.items():
+            r = grid_rows.setdefault(int(a), {})
+            for u, w in uws.items():
+                r[f"{plan}-{u}"] = round(w, 4)
+    st.dataframe(pd.DataFrame(grid_rows).T.sort_index().fillna(0.0),
+                 use_container_width=True, height=240)
 
-    st.markdown("#### Suggested premium factors")
-    st.markdown("**Base premium by issue age** (plan-G blend)")
-    st.dataframe(_factor_df(p.base_by_issue_age, "Base premium"), use_container_width=True)
+    if d.by_state:
+        st.markdown("**UW mix by state** (GI / OE / UW share)")
+        mix_rows = {}
+        for s in sorted(d.by_state):
+            uw = d.uw_mix(s)
+            tot = sum(uw.values()) or 1.0
+            mix_rows[s] = {u: round(uw.get(u, 0.0) / tot, 3) for u in ("GI", "OE", "UW")}
+        st.dataframe(pd.DataFrame(mix_rows).T, use_container_width=True, height=240)
+
+    st.markdown("#### Suggested premium factors — current vs suggested")
+    st.caption("Differentials are isolated by a multivariate fit (each holds the others "
+               "fixed) and are editable before adopting.")
+    cp = cur.premium
+    st.dataframe(pd.DataFrame({
+        "current base": {int(a): round(v) for a, v in sorted(cp.base_by_issue_age.items())},
+        "suggested base": {int(a): round(v) for a, v in sorted(p.base_by_issue_age.items())},
+    }), use_container_width=True, height=240)
     pc = st.columns(3)
-    st.caption("The suggested differentials are editable — adjust before adopting.")
     with pc[0]:
-        st.markdown("**Plan relativities (G = 1.00)**")
-        st.dataframe(_factor_df(p.plan_rel, "Relativity"), use_container_width=True)
+        st.markdown("**Plan rel (cur → sugg)**")
+        st.dataframe(pd.DataFrame({
+            "current": {k: round(cp.plan_rel.get(k, 1.0), 3) for k in p.plan_rel},
+            "suggested": {k: round(v, 3) for k, v in p.plan_rel.items()}}),
+            use_container_width=True)
         p.gender_diff = st.number_input(
-            "Gender differential (M vs F)", value=float(p.gender_diff),
+            f"Gender diff (cur {cp.gender_diff*100:.1f}%)", value=float(p.gender_diff),
             step=0.01, format="%.3f", key="sales_gender_diff")
     with pc[1]:
-        st.markdown("**UW relativities**")
-        st.dataframe(_factor_df(p.uw_rel, "Relativity"), use_container_width=True)
+        st.markdown("**UW rel (cur → sugg)**")
+        st.dataframe(pd.DataFrame({
+            "current": {k: round(cp.uw_rel.get(k, 1.0), 3) for k in p.uw_rel},
+            "suggested": {k: round(v, 3) for k, v in p.uw_rel.items()}}),
+            use_container_width=True)
         p.preferred_diff = st.number_input(
-            "Non-preferred differential", value=float(p.preferred_diff),
-            step=0.01, format="%.3f", key="sales_pref_diff")
+            f"Non-preferred diff (cur {cp.preferred_diff*100:.1f}%)",
+            value=float(p.preferred_diff), step=0.01, format="%.3f", key="sales_pref_diff")
     with pc[2]:
-        st.markdown("**State factor**")
-        st.dataframe(_factor_df(p.state_factor, "Factor"), use_container_width=True, height=220)
+        st.markdown("**State factor (suggested)**")
+        st.dataframe(_factor_df(p.state_factor, "Factor"), use_container_width=True, height=160)
         p.hhd_diff = st.number_input(
-            "Non-HHD differential", value=float(p.hhd_diff),
+            f"Non-HHD diff (cur {cp.hhd_diff*100:.1f}%)", value=float(p.hhd_diff),
             step=0.01, format="%.3f", key="sales_hhd_diff")
 
     st.caption("Adopt the distribution mix and the premium factor model separately, or "
@@ -165,29 +182,59 @@ def _claims_section() -> None:
     st.success(f"Parsed {m['n_rows']:,} rows; observed overall claim cost "
                f"${m['overall_cc']:,.0f}/life-year.")
 
-    st.markdown("**Base claim cost by plan & issue age** (gender blend, per life-year)")
+    cur = get_assumptions()
+    cmorb = cur.morbidity
+    cred = st.number_input(
+        "Full-credibility standard (life-years of exposure; 0 = no blending)",
+        value=2000.0, min_value=0.0, step=500.0, key="claims_cred_std",
+        help="Z = min(1, sqrt(exposure / standard)); adopted base cost = "
+             "Z·experience + (1−Z)·current pricing.")
+
+    st.markdown("**Base claim cost by plan & issue age — current vs experience vs "
+                "credibility-blended adopt** (gender blend, per life-year)")
     bca = m["base_cc_by_issue_age"]
-    ages = sorted({a for p in bca.values() for a in p})
-    dfb = pd.DataFrame({p: {a: round(bca.get(p, {}).get(a, float("nan")), 0) for a in ages}
-                        for p in sorted(bca)})
-    st.dataframe(dfb, use_container_width=True, height=260)
+    expo = m.get("base_cc_exposure", {})
+    ages = list(cmorb.ages)
+    rows = {}
+    for p in cmorb.plans:
+        cur_map = dict(zip(cmorb.ages, cmorb.base_cc[p]))
+        for a in ages:
+            sg = bca.get(p, {}).get(a)
+            z = credibility_z(expo.get(p, {}).get(a, 0.0), cred)
+            adopt = blend(sg, cur_map.get(a, 0.0), z) if sg is not None else cur_map.get(a)
+            r = rows.setdefault(a, {})
+            r[f"{p} cur"] = round(cur_map.get(a, 0.0))
+            r[f"{p} exp"] = round(sg) if sg is not None else None
+            r[f"{p} Z"] = round(z, 2)
+            r[f"{p} adopt"] = round(adopt) if adopt is not None else None
+    st.dataframe(pd.DataFrame(rows).T.sort_index(), use_container_width=True, height=250)
 
     cols = st.columns(3)
     with cols[0]:
-        m["gender_diff"] = st.number_input(
-            "Gender differential (M vs F)", value=float(m["gender_diff"]),
+        st.caption(f"Gender differential — raw {m['gender_diff']*100:.1f}% vs "
+                   f"isolated {m['gender_diff_isolated']*100:.1f}% "
+                   f"(current model {cmorb.gender_cc_diff*100:.1f}%)")
+        m["gender_diff_isolated"] = st.number_input(
+            "Adopted gender differential (M vs F)", value=float(m["gender_diff_isolated"]),
             step=0.01, format="%.3f", key="claims_gender_diff",
-            help="Suggested from the data — editable before adopting.")
+            help="Isolated (multivariate) estimate, holding age/plan/UW fixed — editable.")
     with cols[1]:
-        st.markdown("**State factors (vs All)**")
-        st.dataframe(pd.DataFrame(
-            {"Factor": {s: round(f, 3) for s, f in sorted(m["state_factors"].items())}}),
-            use_container_width=True, height=220)
+        st.markdown("**State factors (vs All)** — current vs experience")
+        sf_cur = cmorb.state_factors
+        st.dataframe(pd.DataFrame({
+            "current": {s: round(sf_cur.get(s, 1.0), 3) for s in sorted(m["state_factors"])},
+            "experience": {s: round(f, 3) for s, f in sorted(m["state_factors"].items())},
+        }), use_container_width=True, height=220)
     with cols[2]:
-        st.markdown("**Claim-cost aging (diagnostic)**")
-        st.dataframe(pd.DataFrame(
-            {"cc_d/cc_1": {d: round(r, 3) for d, r in sorted(m["aging_by_duration"].items())}}),
-            use_container_width=True, height=220)
+        st.markdown("**Claim-cost aging — current vs suggested** (cumulative, ≥1)")
+        cur_cum, run = {}, 1.0
+        for i, inc in enumerate(cmorb.cc_aging_by_duration[:10], start=1):
+            run *= (1.0 + inc)
+            cur_cum[i] = round(run, 3)
+        st.dataframe(pd.DataFrame({
+            "current": cur_cum,
+            "suggested": {d: round(v, 3) for d, v in sorted(m["aging_curve"].items()) if d <= 10},
+        }), use_container_width=True, height=220)
 
     st.markdown("**UW selection by duration** (observed cc relative to all-UW)")
     sel = {}
@@ -195,29 +242,32 @@ def _claims_section() -> None:
         sel.setdefault(uw, {})[d] = round(f, 3)
     st.dataframe(pd.DataFrame(sel), use_container_width=True, height=200)
 
-    st.caption("Adopt each piece separately, or all at once. Where an issue-age band (or "
-               "plan) has no claims experience, the current pricing value is kept — no "
-               "smoothing or extrapolation (revert to pricing). Claim-cost aging is a "
-               "diagnostic (not adopted). Lapse, mortality, trend, commission and economic "
-               "assumptions are not in the claims data and stay manual.")
+    st.caption("Adopt each piece separately, or all at once. Base cost is credibility-"
+               "blended toward current pricing; aging is isolated and forced monotone ≥1. "
+               "Where an issue-age band (or plan) has no experience, the current pricing "
+               "value is kept (revert to pricing). Lapse, mortality, trend, commission and "
+               "economic assumptions are not in the claims data and stay manual.")
 
     def _adopt_claims(parts, msg):
         from app.state import set_assumptions
-        set_assumptions(apply_claims(get_assumptions(), m, parts=parts))
+        set_assumptions(apply_claims(get_assumptions(), m, parts=parts,
+                                     credibility_standard=cred))
         st.success(msg)
 
-    ac = st.columns(5)
-    if ac[0].button("Adopt base claim cost", key="claims_adopt_base"):
-        _adopt_claims(("base_cc",), "Adopted base claim cost by issue age.")
-    if ac[1].button("Adopt gender diff", key="claims_adopt_gender"):
+    ac = st.columns(6)
+    if ac[0].button("Adopt base cost", key="claims_adopt_base"):
+        _adopt_claims(("base_cc",), "Adopted base claim cost (credibility-blended).")
+    if ac[1].button("Adopt gender", key="claims_adopt_gender"):
         _adopt_claims(("gender",), "Adopted the gender differential.")
-    if ac[2].button("Adopt state factors", key="claims_adopt_state"):
+    if ac[2].button("Adopt state", key="claims_adopt_state"):
         _adopt_claims(("state",), "Adopted state morbidity factors.")
     if ac[3].button("Adopt selection", key="claims_adopt_sel"):
         _adopt_claims(("selection",), "Adopted UW selection factors.")
-    if ac[4].button("Adopt all", type="primary", key="claims_adopt"):
-        _adopt_claims(("base_cc", "gender", "state", "selection"),
-                      "Adopted base claim cost, gender differential, state factors, and selection.")
+    if ac[4].button("Adopt aging", key="claims_adopt_aging"):
+        _adopt_claims(("aging",), "Adopted claim-cost aging.")
+    if ac[5].button("Adopt all", type="primary", key="claims_adopt"):
+        _adopt_claims(("base_cc", "gender", "state", "selection", "aging"),
+                      "Adopted base cost, gender, state, selection, and aging.")
 
 
 def _ae_section() -> None:

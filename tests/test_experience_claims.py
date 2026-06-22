@@ -6,22 +6,23 @@ from medigap_engine.io.defaults import load_template_csv
 
 
 def _row(state, plan, age, gender, uw, dur, cnt, adj):
+    # cnt is the exposure in life-years; earned/annualized_prem are unused for exposure
     return {"state": state, "plan": plan, "issue_age": age, "gender": gender,
             "uw_class": uw, "duration": dur, "cnt": cnt, "earned": 100.0,
             "annualized_prem": 1200.0, "adj_claims": adj}
 
 
 def test_derive_morbidity_dur1_cc():
-    # 12 lives-months = 1 life-year; 1200 claims -> 1200/life-year
-    rows = [_row("All", "G", 65, "M", "UW", 1, 12, 1200.0)]
+    # exposure = cnt life-years; 1200 claims over 1 life-year -> 1200/life
+    rows = [_row("All", "G", 65, "M", "UW", 1, 1, 1200.0)]
     m = derive_morbidity(rows)
     assert abs(m["dur1_cc"]["G"][65] - 1200.0) < 1e-6
 
 
 def test_state_factor_relative_to_all():
     rows = [
-        _row("All", "G", 65, "M", "UW", 1, 12, 1000.0),
-        _row("CA", "G", 65, "M", "UW", 1, 12, 2000.0),
+        _row("All", "G", 65, "M", "UW", 1, 1, 1000.0),
+        _row("CA", "G", 65, "M", "UW", 1, 1, 2000.0),
     ]
     m = derive_morbidity(rows)
     # overall cc = 3000/2 = 1500; CA = 2000 -> factor 2000/1500
@@ -30,23 +31,29 @@ def test_state_factor_relative_to_all():
 
 def test_aging_by_duration_ratio():
     rows = [
-        _row("All", "G", 65, "M", "UW", 1, 12, 1000.0),
-        _row("All", "G", 65, "M", "UW", 5, 12, 1500.0),
+        _row("All", "G", 65, "M", "UW", 1, 1, 1000.0),
+        _row("All", "G", 65, "M", "UW", 5, 1, 1500.0),
     ]
     m = derive_morbidity(rows)
     assert abs(m["aging_by_duration"][1] - 1.0) < 1e-9
     assert abs(m["aging_by_duration"][5] - 1.5) < 1e-9
 
 
-def test_exposure_uses_earned_fraction_not_assumed_monthly():
-    # an ANNUAL row (earned == annualized_prem) is a full life-year per life, not 1/12.
-    # With the old cnt/12 basis this would report 12x too high ("absurdly high").
-    rows = [{"state": "All", "plan": "G", "issue_age": 65, "gender": "M",
-             "uw_class": "UW", "duration": 1, "cnt": 10, "earned": 1200.0,
-             "annualized_prem": 1200.0, "adj_claims": 12000.0}]
+def test_exposure_is_the_count_column_not_monthly():
+    # cnt IS the exposure (life-years); 12000 claims over 10 life-years -> 1200/life.
+    # The old cnt/12 basis reported this 12x too high ("absurdly high").
+    rows = [_row("All", "G", 65, "M", "UW", 1, 10, 12000.0)]
     m = derive_morbidity(rows)
-    assert abs(m["dur1_cc"]["G"][65] - 1200.0) < 1e-6           # 12000 / 10 life-years
+    assert abs(m["dur1_cc"]["G"][65] - 1200.0) < 1e-6
     assert abs(m["total_exposure"] - 10.0) < 1e-9
+
+
+def test_explicit_exposure_column_overrides_cnt():
+    rows = [{"state": "All", "plan": "G", "issue_age": 65, "gender": "M",
+             "uw_class": "UW", "duration": 1, "cnt": 999, "exposure": 4.0,
+             "adj_claims": 8000.0}]
+    m = derive_morbidity(rows)
+    assert abs(m["dur1_cc"]["G"][65] - 2000.0) < 1e-6           # 8000 / 4 life-years
 
 
 def test_base_cc_keyed_by_issue_age():

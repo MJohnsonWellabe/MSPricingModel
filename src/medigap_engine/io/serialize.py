@@ -105,6 +105,9 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
         gender={k: float(v) for k, v in dist["gender"].items()},
         preferred={k: float(v) for k, v in dist["preferred"].items()},
         hhd={k: float(v) for k, v in dist["hhd"].items()},
+        by_state={str(s): {fld: sd[fld] for fld in ("joint", "gender", "preferred", "hhd")
+                           if fld in sd}
+                  for s, sd in dist.get("by_state", {}).items()},
     )
     t = d["termination"]
     termination = TerminationAssumptions(
@@ -175,6 +178,7 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
         "distribution": {
             "joint": dist.joint, "gender": dist.gender,
             "preferred": dist.preferred, "hhd": dist.hhd,
+            "by_state": dist.by_state,
         },
         "termination": {
             "base_lapse": t.base_lapse, "uw_lapse_rel": t.uw_lapse_rel,

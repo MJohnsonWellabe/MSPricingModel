@@ -76,19 +76,19 @@ re-derived from the aggregated cashflows. States are combined into an all-states
 view.
 
 ### Experience study (raw data → assumptions)
-- **Sales data** (raw rows) is aggregated to per-cell distribution weights and
-  average premiums (overall and by state). You can *Adopt distribution*,
-  *Adopt premiums*, or *Adopt all* separately.
-- **Claims data** yields observed claim cost per life. Exposure is measured in
-  **life-years = `cnt × earned/annualized_prem`** (the earned fraction of a
-  policy-year), so monthly, quarterly or annual rows are all handled correctly;
-  a plain `cnt/12` would over-divide non-monthly data and report costs that are
-  far too high. Claim cost is keyed by **issue age** (everyone is bucketed into the
-  key issue-age bands), matching how the engine prices. *Adopt* is granular —
-  base claim cost, gender differential, state factors and UW selection can each be
-  adopted on their own, or all together. Where an issue-age band has **no
-  experience, the current pricing value is kept** (revert to pricing — no smoothing
-  or extrapolation). Selection and claim-cost aging are shown for judgement.
+- **Sales data** is fit to the model's **joint plan × issue-age × UW grid** (not just
+  marginals) and a **per-state** grid (GI/OE/UW and plan mix vary by state). Premium
+  differentials are **isolated by a multivariate fit** that holds the other variables
+  fixed, so the male-vs-female load reflects gender alone rather than a confounded
+  marginal (e.g. males skewing to cheaper plans). *Adopt distribution / premiums / all*.
+- **Claims data** yields observed claim cost per life. **Exposure = life-years = the
+  `exposure` column if present, else `cnt`** (which already carries annualized exposure);
+  the old `cnt/12` over-divided and reported costs ~12× too high. Claim cost is keyed by
+  **issue age** (bucketed to the key bands). Each piece adopts on its own — base cost,
+  gender, state, selection, **aging** — or all together. Low-credibility bands are
+  **credibility-blended** toward current pricing, `Z = min(1, √(exposure/standard))` with
+  a full-credibility standard you set; bands with no experience keep the pricing value.
+  **Aging** is isolated and forced monotone ≥ 1. The tab shows **current vs suggested**.
 - **AE analysis** compares actual claims to expected (best-estimate assumptions,
   excluding the pricing antiselection load) at selectable granularity.
 

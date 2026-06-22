@@ -14,9 +14,32 @@ import math
 from collections import defaultdict
 
 from ..models.assumptions import AssumptionSet
+from .credibility import blend, credibility_z
+from .decomp import differential, fit_main_effects
 
 # index of each dimension within the cell-key tuple used by aggregate_sales
 _DIM_INDEX = {"issue_age": 0, "gender": 1, "plan": 2, "uw": 3, "preferred": 4, "hhd": 5}
+
+
+def _distribution_block(counts: dict) -> dict:
+    """Build a {joint, gender, preferred, hhd} distribution block from cell-key counts
+    (joint plan x issue-age x UW grid + independent gender/preferred/HHD marginals,
+    each normalised to sum to 1)."""
+    total = sum(counts.values()) or 1.0
+    grid: dict[str, dict[str, dict[str, float]]] = {}
+    for k, c in counts.items():
+        age, _g, plan, uw, _p, _h = k  # tuple order per _DIM_INDEX
+        ages = grid.setdefault(str(plan), {}).setdefault(str(int(age)), {})
+        ages[str(uw)] = ages.get(str(uw), 0.0) + c / total
+    joint = {pl: {a: {u: round(w, 8) for u, w in uws.items()} for a, uws in ages.items()}
+             for pl, ages in grid.items()}
+    out = {"joint": joint}
+    for dim in ("gender", "preferred", "hhd"):
+        marg: dict = defaultdict(float)
+        for k, c in counts.items():
+            marg[k[_DIM_INDEX[dim]]] += c
+        out[dim] = {v: round(c / total, 8) for v, c in marg.items()}
+    return out
 
 
 def apply_sales(asm: AssumptionSet, sales: dict, parts=("distribution", "premium")) -> AssumptionSet:
@@ -28,56 +51,43 @@ def apply_sales(asm: AssumptionSet, sales: dict, parts=("distribution", "premium
     counts = sales["counts"]            # cell-key tuple -> total applications
     avg_premium = sales["avg_premium"]  # cell-key tuple -> average premium
     state_prem = sales["state_premiums"]
+    state_counts = sales.get("state_counts", {})   # cell-key -> {state: count}
 
-    # ---- distribution: joint plan x issue-age x UW grid (captures the
-    # non-separable mix) plus independent gender / preferred / HHD marginals ----
-    total = sum(counts.values()) or 1.0
+    # ---- distribution: a national joint plan x issue-age x UW grid + gender/preferred/
+    # HHD marginals, AND a per-state grid (GI/OE/UW and plan mix vary by state) ----
     if "distribution" in parts and counts:
-        grid: dict[str, dict[str, dict[str, float]]] = {}
-        for k, c in counts.items():
-            age, _g, plan, uw, _p, _h = k  # tuple order per _DIM_INDEX
-            ages = grid.setdefault(str(plan), {}).setdefault(str(int(age)), {})
-            ages[str(uw)] = ages.get(str(uw), 0.0) + c / total
-        new.distribution.joint = {
-            pl: {a: {u: round(w, 8) for u, w in uws.items()} for a, uws in ages.items()}
-            for pl, ages in grid.items()}
+        nat = _distribution_block(counts)
+        new.distribution.joint = nat["joint"]
         for dim in ("gender", "preferred", "hhd"):
-            marg = defaultdict(float)
-            for k, c in counts.items():
-                marg[k[_DIM_INDEX[dim]]] += c
-            setattr(new.distribution, dim, {v: round(c / total, 8) for v, c in marg.items()})
+            setattr(new.distribution, dim, nat[dim])
+        # per-state grids from the per-(cell, state) counts
+        by_state_counts: dict = defaultdict(dict)
+        for k, per_state in state_counts.items():
+            for s, c in per_state.items():
+                by_state_counts[s][k] = c
+        new.distribution.by_state = {
+            s: _distribution_block(ck) for s, ck in by_state_counts.items() if ck}
 
-    # ---- premium: log main-effects decomposition weighted by count ----
-    obs = [(k, math.log(p), counts.get(k, 0.0))
+    # ---- premium: ISOLATED multivariate main-effects fit (key dims 0=age, 1=gender,
+    # 2=plan, 3=uw, 4=preferred, 5=hhd), so each differential holds the others fixed
+    # rather than reading a confounded marginal ----
+    obs = [(k, p, counts.get(k, 0.0))
            for k, p in avg_premium.items() if p > 0 and counts.get(k, 0.0) > 0]
     if "premium" in parts and obs:
-        wtot = sum(w for _, _, w in obs) or 1.0
-        mu = sum(lp * w for _, lp, w in obs) / wtot
-
-        def eff(idx):
-            g = defaultdict(lambda: [0.0, 0.0])
-            for k, lp, w in obs:
-                g[k[idx]][0] += lp * w
-                g[k[idx]][1] += w
-            return {v: (s / w - mu) for v, (s, w) in g.items() if w}
+        fit = fit_main_effects(obs, n_dims=6)
+        factors, logeff, baseline = fit["factors"], fit["log_effects"], fit["baseline"]
+        plan_g = factors[2].get("G", 1.0) or 1.0
 
         p = new.premium
-        plan_eff = eff(2)
-        plan_g = plan_eff.get("G", 0.0)
         # base = blend at plan G; plan relativities anchored at G = 1.0
-        p.base_by_issue_age = {int(a): round(math.exp(mu + e + plan_g), 4)
-                               for a, e in eff(0).items()}
-        p.plan_rel = {v: round(math.exp(e - plan_g), 6) for v, e in plan_eff.items()}
-        p.uw_rel = {v: round(math.exp(e), 6) for v, e in eff(3).items()}
-
-        # two-level dims expressed as a single differential (high level over low)
-        def diff(idx, high, low):
-            e = eff(idx)
-            return round(math.exp(e.get(high, 0.0) - e.get(low, 0.0)) - 1.0, 6)
-
-        p.gender_diff = diff(1, "M", "F")
-        p.preferred_diff = diff(4, "N", "Y")
-        p.hhd_diff = diff(5, "N", "Y")
+        p.base_by_issue_age = {int(a): round(baseline * f * plan_g, 4)
+                               for a, f in factors[0].items()}
+        p.plan_rel = {v: round(f / plan_g, 6) for v, f in factors[2].items()}
+        p.uw_rel = {v: round(f, 6) for v, f in factors[3].items()}
+        p.gender_diff = round(differential(factors, 1, "M", "F"), 6)
+        p.preferred_diff = round(differential(factors, 4, "N", "Y"), 6)
+        p.hhd_diff = round(differential(factors, 5, "N", "Y"), 6)
+        _ = logeff  # (additive effects available if needed)
 
         # state premium factors: geomean of (state premium / cell average premium)
         st_logs = defaultdict(list)
@@ -93,33 +103,59 @@ def apply_sales(asm: AssumptionSet, sales: dict, parts=("distribution", "premium
     return new
 
 
+def _incremental_aging(curve: dict, n: int) -> list:
+    """Cumulative aging curve (duration -> factor >=1) -> the engine's incremental
+    cc_aging_by_duration of length ``n`` (index d-1). Increment is cum_d/cum_{d-1}-1,
+    floored at 0 so (1+aging) is never below 1; durations past the data hold flat."""
+    if not curve:
+        return [0.0] * n
+    durs = sorted(curve)
+    last = durs[-1]
+    inc = [0.0] * n
+    for d in range(2, n + 1):
+        cum_d = curve.get(d, curve[last])
+        cum_prev = curve.get(d - 1, curve[last])
+        inc[d - 1] = round(max(0.0, cum_d / cum_prev - 1.0), 6) if cum_prev else 0.0
+    return inc
+
+
 def apply_claims(asm: AssumptionSet, claims: dict,
-                 parts=("base_cc", "gender", "state", "selection")) -> AssumptionSet:
+                 parts=("base_cc", "gender", "state", "selection"),
+                 credibility_standard: float = 0.0) -> AssumptionSet:
     """Return a copy of ``asm`` with the morbidity assumptions the claims data can
     inform: base claim-cost level by plan & **issue age**, the gender differential,
-    state morbidity factors, and UW selection factors. ``parts`` selects which to
-    adopt (default all). Where an (issue age, plan) has no experience, the existing
-    pricing value is retained — no smoothing or extrapolation (revert to pricing).
-    (Claim-cost aging is a diagnostic, not adopted; lapse/mortality/trend are not in
-    the data.)"""
+    state morbidity factors, UW selection, and claim-cost aging. ``parts`` selects
+    which to adopt. ``credibility_standard`` (life-years for full credibility, 0 = off)
+    blends each base-cost band's experience with the current pricing value via the
+    square-root rule. Where an (issue age, plan) has no experience, the existing
+    pricing value is retained (revert to pricing — no extrapolation)."""
     new = copy.deepcopy(asm)
     morb = new.morbidity
     parts = set(parts)
 
-    # base claim cost by plan & ISSUE age (gender blend). Where a band has no data,
-    # keep the current pricing value (revert to pricing — no extrapolation).
+    # base claim cost by plan & ISSUE age (gender blend), credibility-blended toward
+    # the current pricing value; bands with no data keep the pricing value.
     if "base_cc" in parts:
         by_issue = claims.get("base_cc_by_issue_age", {})
+        expo = claims.get("base_cc_exposure", {})
         for plan in morb.plans:
             curve = by_issue.get(plan)
             if not curve:
                 continue
-            morb.base_cc[plan] = [round(curve[a], 4) if a in curve else old
-                                  for a, old in zip(morb.ages, morb.base_cc[plan])]
+            new_vals = []
+            for a, old in zip(morb.ages, morb.base_cc[plan]):
+                if a in curve:
+                    z = credibility_z(expo.get(plan, {}).get(a, 0.0), credibility_standard)
+                    new_vals.append(round(blend(curve[a], old, z), 4))
+                else:
+                    new_vals.append(old)   # revert to pricing
+            morb.base_cc[plan] = new_vals
 
-    # gender differential
-    if "gender" in parts and claims.get("gender_diff") is not None:
-        morb.gender_cc_diff = float(claims["gender_diff"])
+    # gender differential — prefer the isolated (multivariate) estimate
+    if "gender" in parts:
+        gd = claims.get("gender_diff_isolated", claims.get("gender_diff"))
+        if gd is not None:
+            morb.gender_cc_diff = float(gd)
 
     # state factors from observed relativities (keep existing where not observed)
     if "state" in parts:
@@ -132,4 +168,11 @@ def apply_claims(asm: AssumptionSet, claims: dict,
         rows = claims.get("selection_rows")
         if rows:
             morb.selection_factors = [dict(r) for r in rows]
+
+    # claim-cost aging (antiselection P): isolated, monotone >=1 curve -> increments
+    if "aging" in parts:
+        curve = claims.get("aging_curve")
+        if curve:
+            morb.cc_aging_by_duration = _incremental_aging(
+                curve, len(morb.cc_aging_by_duration))
     return new

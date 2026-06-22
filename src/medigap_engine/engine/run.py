@@ -31,12 +31,22 @@ def _project_state(
     return aggregate_cells(state, results, asm)
 
 
+def _state_cells(state: str, cells: list[PricingCell], asm: AssumptionSet) -> list[PricingCell]:
+    """Reweight cells by the state's distribution grid when one is present (per-state
+    GI/OE/UW and plan mix); otherwise use the national weights unchanged."""
+    if state not in asm.distribution.by_state:
+        return cells
+    rew = [replace(c, weight=asm.distribution.grid_weight(c.key, state)) for c in cells]
+    return normalize_weights(rew)
+
+
 def run_state(
     state: str, cells: list[PricingCell], asm: AssumptionSet, config: RunConfig,
     formulas: Optional[FormulaSet] = None,
 ) -> tuple[StateResult, dict]:
     """Price one state, solving rerates if configured."""
     sens = config.sensitivities
+    cells = _state_cells(state, cells, asm)
 
     def projector(rerates: list[float]) -> StateResult:
         return _project_state(state, cells, asm, sens, rerates, formulas)

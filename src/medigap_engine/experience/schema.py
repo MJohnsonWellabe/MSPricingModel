@@ -41,6 +41,7 @@ _ALIASES = {
     "entered_premium": "entered_premium", "entered premium": "entered_premium",
     "premium": "entered_premium", "annualized_prem": "annualized_prem",
     "duration": "duration", "cnt": "cnt", "earned": "earned",
+    "exposure": "exposure", "life_years": "exposure", "life years": "exposure",
     "adj_claims": "adj_claims", "adj claims": "adj_claims", "claims": "adj_claims",
 }
 
@@ -149,6 +150,7 @@ def normalize_claims(rows: Iterable[dict]) -> list[dict]:
             "uw_class": uw,
             "duration": int(round(_num(r.get("duration")) or 1)),
             "cnt": cnt,
+            "exposure": _num(r.get("exposure")) or 0.0,
             "earned": _num(r.get("earned")) or 0.0,
             "annualized_prem": _num(r.get("annualized_prem")) or 0.0,
             "adj_claims": _num(r.get("adj_claims")) or 0.0,

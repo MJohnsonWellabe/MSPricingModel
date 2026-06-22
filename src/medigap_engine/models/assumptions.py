@@ -145,6 +145,47 @@ class DistributionAssumptions:
     gender: dict[str, float]
     preferred: dict[str, float]
     hhd: dict[str, float]
+    # optional per-state overrides: state -> {joint, gender, preferred, hhd}. When a
+    # state is present, pricing that state uses its grid/marginals (GI/OE/UW and plan
+    # mix vary by state); otherwise the national grid above is used. Empty by default
+    # so the national book is unchanged.
+    by_state: dict = field(default_factory=dict)
+
+    def _gridmix(self, state, field_name):
+        sd = self.by_state.get(state) if state else None
+        if sd and sd.get(field_name):
+            return sd[field_name]
+        return getattr(self, field_name) if field_name != "joint" else self.joint
+
+    def gender_mix(self, state=None) -> dict:
+        return self._gridmix(state, "gender")
+
+    def preferred_mix(self, state=None) -> dict:
+        return self._gridmix(state, "preferred")
+
+    def hhd_mix(self, state=None) -> dict:
+        return self._gridmix(state, "hhd")
+
+    def uw_mix(self, state=None) -> dict:
+        joint = self._gridmix(state, "joint")
+        out: dict[str, float] = {}
+        for ages in joint.values():
+            for uws in ages.values():
+                for u, w in uws.items():
+                    out[u] = out.get(u, 0.0) + w
+        return out or self.uw
+
+    def grid_weight(self, key, state=None) -> float:
+        """Cell weight for a state: the state's joint grid x its gender/preferred/hhd
+        marginals when present, else the national weight."""
+        sd = self.by_state.get(state) if state else None
+        if not sd:
+            return self.weight(key)
+        jw = sd.get("joint", {}).get(key.plan, {}).get(str(key.issue_age), {}).get(key.uw_class, 0.0)
+        return (jw
+                * sd.get("gender", self.gender).get(key.gender, 0.0)
+                * sd.get("preferred", self.preferred).get(key.preferred, 0.0)
+                * sd.get("hhd", self.hhd).get(key.hhd, 0.0))
 
     @property
     def plan(self) -> dict[str, float]:
