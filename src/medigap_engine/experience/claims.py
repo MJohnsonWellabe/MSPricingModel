@@ -64,9 +64,7 @@ def derive_morbidity(rows) -> dict:
         return {"claims": 0.0, "exp": 0.0}
 
     by_plan_age_d1: dict = {}
-    by_plan_oe_d1: dict = {}          # (plan, issue age) -> OE-class duration-1 base cost
-    by_age_oe_d1: dict = {}           # issue age -> OE-class duration-1 ref for selection
-    by_plan_issue: dict = {}         # (plan, issue age) -> cc, the base-cost level
+    by_plan_issue: dict = {}         # (plan, issue age) -> cc (all durations), diagnostics
     by_state: dict = {}
     by_gender: dict = {}
     by_uw_dur: dict = {}
@@ -100,35 +98,22 @@ def derive_morbidity(rows) -> dict:
             cell = by_plan_age_d1.setdefault(r["plan"], {}).setdefault(r["issue_age"], acc())
             cell["claims"] += cl
             cell["exp"] += exp
-            # OE-class, duration-1 reference: base_cc is applied constant across duration
-            # in the engine (durational pattern lives in selection × aging), and the model
-            # references selection to OE/dur1 = 1.0, so the base level is the OE/dur1 cost.
-            if r["uw_class"] == "OE":
-                c2 = by_plan_oe_d1.setdefault((r["plan"], r["issue_age"]), acc())
-                c2["claims"] += cl
-                c2["exp"] += exp
-                c3 = by_age_oe_d1.setdefault(r["issue_age"], acc())
-                c3["claims"] += cl
-                c3["exp"] += exp
 
     overall = _cc(total["claims"], total["exp"])
     dur1_cc = {p: {a: _cc(v["claims"], v["exp"]) for a, v in ages.items()}
                for p, ages in by_plan_age_d1.items()}
 
-    # base claim-cost level by (plan, ISSUE age) = OE-class, DURATION-1 cost (matches the
-    # engine's indexing and the selection reference). Exposure behind each band for
-    # credibility weighting. Fall back to the all-UW duration-1 level if a (plan, age) cell
-    # has no OE/dur1 exposure.
+    # base claim-cost level by (plan, ISSUE age) = the ALL-UW, DURATION-1 blended claim cost
+    # (matches a direct duration-1 pull from the data, and the engine's indexing: base_cc is
+    # applied constant across duration, with the durational and UW-class pattern carried by
+    # selection × aging — including OE's antiselection ramp by issue age). Exposure behind
+    # each band is retained for credibility weighting.
     base_cc_by_issue_age: dict = {}
     base_cc_exposure: dict = {}
-    for (plan, age), v in by_plan_oe_d1.items():
-        base_cc_by_issue_age.setdefault(plan, {})[age] = _cc(v["claims"], v["exp"])
-        base_cc_exposure.setdefault(plan, {})[age] = v["exp"]
-    for plan, ages in dur1_cc.items():       # fill gaps with all-UW dur-1 where no OE/dur1
+    for plan, ages in dur1_cc.items():
         for age, cc in ages.items():
-            base_cc_by_issue_age.setdefault(plan, {}).setdefault(age, cc)
-            base_cc_exposure.setdefault(plan, {}).setdefault(
-                age, by_plan_age_d1[plan][age]["exp"])
+            base_cc_by_issue_age.setdefault(plan, {})[age] = cc
+            base_cc_exposure.setdefault(plan, {})[age] = by_plan_age_d1[plan][age]["exp"]
 
     # gender differential (male vs female), de-meaned by exposure
     g_cc = {g: _cc(v["claims"], v["exp"]) for g, v in by_gender.items()}
@@ -137,30 +122,29 @@ def derive_morbidity(rows) -> dict:
     state_factors = {s: (_cc(v["claims"], v["exp"]) / overall if overall else 1.0)
                      for s, v in by_state.items()}
 
-    # selection is referenced to the OE / duration-1 claim level by issue age (so OE/dur1 ≈
-    # 1.0, UW < 1, GI > 1), matching the engine: claim = base_cc(issue_age) × selection.
-    # Where an issue age has no OE/dur1 exposure, fall back to the all-UW dur-1 level.
-    oe_d1_ref = {a: _cc(v["claims"], v["exp"]) for a, v in by_age_oe_d1.items()}
-    allcell_d1 = {a: sum(by_plan_age_d1[p][a]["claims"] for p in by_plan_age_d1 if a in by_plan_age_d1[p])
-                  / (sum(by_plan_age_d1[p][a]["exp"] for p in by_plan_age_d1 if a in by_plan_age_d1[p]) or 1.0)
+    # selection is referenced to the ALL-UW / duration-1 blended claim level by issue age, so
+    # the UW-mix-weighted selection ≈ 1.0 at duration 1 (OE ramps up with issue age as it
+    # antiselects, UW < 1, GI > 1) — matching the engine: claim = base_cc(issue_age) × selection.
+    allcell_d1 = {a: _cc(sum(by_plan_age_d1[p][a]["claims"] for p in by_plan_age_d1 if a in by_plan_age_d1[p]),
+                         sum(by_plan_age_d1[p][a]["exp"] for p in by_plan_age_d1 if a in by_plan_age_d1[p]))
                   for a in {a for p in by_plan_age_d1 for a in by_plan_age_d1[p]}}
 
     def _ref(age):
-        return oe_d1_ref.get(age) or allcell_d1.get(age) or 0.0
+        return allcell_d1.get(age) or 0.0
 
     dur_cc = {d: _cc(v["claims"], v["exp"]) for d, v in by_dur.items()}
-    selection = {}            # (uw, duration) -> factor on the OE/dur1 reference (book-wide)
+    selection = {}            # (uw, duration) -> factor on the all-UW/dur1 reference (book-wide)
     selection_exposure = {}
     uwdur_cc = {(uw, d): _cc(v["claims"], v["exp"]) for (uw, d), v in by_uw_dur.items()}
-    # exposure-weighted OE/dur1 reference across ages for the book-wide (uw, dur) view
-    oe_tot = sum(v["claims"] for v in by_age_oe_d1.values())
-    oe_exp = sum(v["exp"] for v in by_age_oe_d1.values())
-    ref_book = (oe_tot / oe_exp) if oe_exp else (dur_cc.get(1, 0.0) or 1.0)
+    # exposure-weighted all-UW/dur1 reference across ages for the book-wide (uw, dur) view
+    d1_tot = sum(by_plan_age_d1[p][a]["claims"] for p in by_plan_age_d1 for a in by_plan_age_d1[p])
+    d1_exp = sum(by_plan_age_d1[p][a]["exp"] for p in by_plan_age_d1 for a in by_plan_age_d1[p])
+    ref_book = (d1_tot / d1_exp) if d1_exp else (dur_cc.get(1, 0.0) or 1.0)
     for (uw, d), v in by_uw_dur.items():
         selection[(uw, d)] = (uwdur_cc[(uw, d)] / ref_book) if ref_book else 1.0
         selection_exposure[(uw, d)] = v["exp"]
 
-    # selection by (issue_age, uw, duration) on the OE/dur1 reference; carry exposure
+    # selection by (issue_age, uw, duration) on the all-UW/dur1 reference; carry exposure
     selection_rows = []
     for (age, uw, d), v in by_age_uw_dur.items():
         base = _ref(age)
