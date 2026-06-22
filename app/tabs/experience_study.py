@@ -91,13 +91,33 @@ def _sales_section() -> None:
                  use_container_width=True, height=240)
 
     if d.by_state:
-        st.markdown("**UW mix by state** (GI / OE / UW share)")
+        sep = set(d.sep_rule_states or [])
+        st.markdown("**UW mix by state** (GI / OE / UW share) — blended toward the "
+                    "like-type (separate-rule vs regular) average by sales volume")
+        st.caption("Each state's grid is its own sales mix credibility-blended toward the "
+                   "average of its type. Separate-rule states (editable on the Distribution "
+                   "assumptions tab) skew to open-enrolment; regular states skew underwritten. "
+                   "The full state/age/plan/UW grid is the joint grid above scaled to each "
+                   "state's mix.")
         mix_rows = {}
         for s in sorted(d.by_state):
             uw = d.uw_mix(s)
             tot = sum(uw.values()) or 1.0
-            mix_rows[s] = {u: round(uw.get(u, 0.0) / tot, 3) for u in ("GI", "OE", "UW")}
-        st.dataframe(pd.DataFrame(mix_rows).T, use_container_width=True, height=240)
+            row = {u: round(uw.get(u, 0.0) / tot, 3) for u in ("GI", "OE", "UW")}
+            row["type"] = "sep-rule" if s in sep else "regular"
+            mix_rows[s] = row
+        st.dataframe(pd.DataFrame(mix_rows).T, use_container_width=True, height=300)
+        pick = st.selectbox("Inspect a state's full plan × age × UW grid",
+                            sorted(d.by_state), key="sales_state_pick")
+        sd = d.by_state[pick]
+        gr = {}
+        for plan, ag in sd.get("joint", {}).items():
+            for a, uws in ag.items():
+                rr = gr.setdefault(int(a), {})
+                for u, w in uws.items():
+                    rr[f"{plan}-{u}"] = round(w, 4)
+        st.dataframe(pd.DataFrame(gr).T.sort_index().fillna(0.0),
+                     use_container_width=True, height=220)
 
     st.markdown("#### Suggested premium factors — current vs suggested")
     st.caption("Differentials are isolated by a multivariate fit (each holds the others "
@@ -127,14 +147,20 @@ def _sales_section() -> None:
             f"Non-preferred diff (cur {cp.preferred_diff*100:.1f}%)",
             value=float(p.preferred_diff), step=0.01, format="%.3f", key="sales_pref_diff")
     with pc[2]:
-        st.markdown("**State factor (suggested)**")
-        st.dataframe(_factor_df(p.state_factor, "Factor"), use_container_width=True, height=160)
+        st.markdown("**State factor (cur → sugg)**")
+        st.dataframe(pd.DataFrame({
+            "current": {s: round(cp.state_factor.get(s, 1.0), 3) for s in sorted(p.state_factor)},
+            "suggested": {s: round(v, 3) for s, v in sorted(p.state_factor.items())},
+        }), use_container_width=True, height=160)
         p.hhd_diff = st.number_input(
             f"Non-HHD diff (cur {cp.hhd_diff*100:.1f}%)", value=float(p.hhd_diff),
             step=0.01, format="%.3f", key="sales_hhd_diff")
 
     st.caption("Adopt the distribution mix and the premium factor model separately, or "
-               "both at once. (Edited differentials above are included in the premium adopt.)")
+               "both at once. (Edited differentials above are included in the premium adopt.) "
+               "Adopting premiums also writes per-cell premiums from the sales averages "
+               "(these drive priced premium directly); the premium pull-forward stress is "
+               "set on the Pull-forward tab.")
 
     def _adopt_sales(parts, msg):
         import copy
@@ -227,6 +253,9 @@ def _claims_section() -> None:
         }), use_container_width=True, height=220)
     with cols[2]:
         st.markdown("**Claim-cost aging — current vs suggested** (cumulative, ≥1)")
+        st.caption(f"From the attained-age claim progression (ref issue age "
+                   f"{m.get('aging_ref_issue_age', 70)}); the data has only ~6 policy "
+                   f"durations, so aging is anchored to attained age, not duration.")
         cur_cum, run = {}, 1.0
         for i, inc in enumerate(cmorb.cc_aging_by_duration[:10], start=1):
             run *= (1.0 + inc)
@@ -236,11 +265,26 @@ def _claims_section() -> None:
             "suggested": {d: round(v, 3) for d, v in sorted(m["aging_curve"].items()) if d <= 10},
         }), use_container_width=True, height=220)
 
-    st.markdown("**UW selection by duration** (observed cc relative to all-UW)")
-    sel = {}
-    for (uw, d), f in m["selection"].items():
-        sel.setdefault(uw, {})[d] = round(f, 3)
-    st.dataframe(pd.DataFrame(sel), use_container_width=True, height=200)
+    st.markdown("**UW selection by duration — current vs experience vs adopted**")
+    st.caption("Experience is credibility-blended toward current pricing by exposure; thin "
+               "durations (e.g. duration 6) carry little weight and revert to pricing.")
+    sel_adopt = apply_claims(get_assumptions(), m, parts=("selection",),
+                             credibility_standard=cred).morbidity.selection_factors
+    adopt_map = {(r["uw"], r["duration"]): r["factor"] for r in sel_adopt
+                 if r["issue_age"] == cmorb.ages[0]}
+    cur_map_sel = {(r["uw"], r["duration"]): r["factor"] for r in cmorb.selection_factors
+                   if r["issue_age"] == cmorb.ages[0]}
+    exp_map = {(uw, d): f for (uw, d), f in m["selection"].items()}
+    exp_exp = m.get("selection_exposure", {})
+    durs = sorted({d for (_u, d) in set(exp_map) | set(cur_map_sel) | set(adopt_map)})
+    seltbl = {}
+    for uw in ("UW", "OE", "GI"):
+        for d in durs:
+            seltbl.setdefault(d, {})[f"{uw} cur"] = round(cur_map_sel.get((uw, d), float("nan")), 3)
+            seltbl[d][f"{uw} exp"] = round(exp_map.get((uw, d), float("nan")), 3)
+            seltbl[d][f"{uw} adopt"] = round(adopt_map.get((uw, d), float("nan")), 3)
+            seltbl[d][f"{uw} ly"] = round(exp_exp.get((uw, d), 0.0))
+    st.dataframe(pd.DataFrame(seltbl).T.sort_index(), use_container_width=True, height=240)
 
     st.caption("Adopt each piece separately, or all at once. Base cost is credibility-"
                "blended toward current pricing; aging is isolated and forced monotone ≥1. "

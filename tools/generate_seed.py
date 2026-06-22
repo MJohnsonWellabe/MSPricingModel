@@ -278,6 +278,37 @@ def build_cell_premiums(cells: list) -> dict:
     return out
 
 
+# states that use a separate community-rating rule (different UW mix); editable later
+SEP_RULE_STATES = ["IN", "VA", "MO", "WA", "CA", "MD", "KY", "DE"]
+
+
+def merge_multistate_tables(assumptions: dict) -> None:
+    """Overlay the workbook-derived per-state values onto the full multi-state reference
+    so a TX-focused workbook does not delete the other states' assumptions. The workbook
+    values (present in ``assumptions``) win; reference fills in the rest."""
+    ref_path = os.path.join(HERE, "multistate_reference.json")
+    if not os.path.exists(ref_path):
+        return
+    with open(ref_path) as f:
+        ref = json.load(f)
+
+    def merge(table: dict, base: dict) -> dict:
+        out = dict(base)
+        out.update({k: v for k, v in table.items() if k != "state"})  # drop junk key
+        return out
+
+    m = assumptions["morbidity"]
+    m["state_factors"] = merge(m.get("state_factors", {}), ref["morbidity_state_factors"])
+    t = assumptions["termination"]
+    t["state_factors"] = merge(t.get("state_factors", {}), ref["termination_state_factors"])
+    c = assumptions["commission"]
+    c["by_state"] = merge(c.get("by_state", {}), ref["commission_by_state"])
+    p = assumptions["premium"]
+    p["state_factor"] = merge(p.get("state_factor", {}), ref["premium_state_factor"])
+    # sep-rule classification (editable per-state input, not a hardcoded constant)
+    assumptions["distribution"]["sep_rule_states"] = list(SEP_RULE_STATES)
+
+
 def main(path: str) -> None:
     wb = openpyxl.load_workbook(path, data_only=True)
     assumptions = build_assumptions(wb["Assumptions"])
@@ -292,6 +323,10 @@ def main(path: str) -> None:
     assumptions["premium"] = premium
     distribution = build_joint_distribution(cells)
     assumptions["distribution"] = distribution
+
+    # restore the full multi-state per-state tables (this workbook is TX-focused and only
+    # carries a few states); workbook-derived values overlay the reference baseline.
+    merge_multistate_tables(assumptions)
     if isinstance(z1, (int, float)):
         assumptions["morbidity"]["state_factors"]["TX"] = round(float(z1), 8)
         assumptions["morbidity"]["state_factors"].setdefault("All", 1.0)

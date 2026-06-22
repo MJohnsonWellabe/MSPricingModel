@@ -70,3 +70,24 @@ def test_claims_sample_loads():
     m = derive_morbidity(rows)
     assert m["n_rows"] > 0
     assert m["overall_cc"] > 0
+
+
+def test_aging_from_attained_age_monotone():
+    # claims rise with ATTAINED age; duration is flat. Aging must come out increasing.
+    rows = []
+    for issue in (65, 70):
+        for dur in range(1, 6):
+            att = issue + dur - 1
+            cc = 1000.0 + 40.0 * (att - 65)        # +4%/yr by attained age
+            rows.append(_row("All", "G", issue, "M", "UW", dur, 100, cc * 100 / 1.0))
+    m = derive_morbidity(rows)
+    ac = m["aging_curve"]
+    assert ac[1] == 1.0
+    assert all(ac[d] >= ac[d - 1] - 1e-9 for d in range(2, 31))   # monotone
+    assert ac[10] > 1.05                                          # genuinely ages up
+
+
+def test_isotonic_monotone():
+    from medigap_engine.experience.claims import _isotonic
+    out = _isotonic([1.0, 3.0, 2.0, 5.0], [1, 1, 1, 1])
+    assert all(out[i] <= out[i + 1] + 1e-9 for i in range(len(out) - 1))

@@ -218,9 +218,26 @@ premiums** (edit one state at a time; a Clear button reverts to the factor model
   **current vs suggested** and the **joint plan×age×UW grid**.
 - **Per-state distribution**: `DistributionAssumptions.by_state` holds per-state
   `{joint,gender,preferred,hhd}` (GI/OE/UW & plan mix vary by state); `apply_sales` builds them from the
-  per-(cell,state) sales counts. The engine threads `state` into the mix-normalisations
-  (`gender_mix/uw_mix/...`, `base_claim_cost`, `claim_class_factors`) and `run._state_cells` reweights
-  cells by `grid_weight(key,state)`. **Empty `by_state` ⇒ national fallback (TX stays exact).**
+  per-(cell,state) sales counts, **credibility-blended toward the like-type average** —
+  `DistributionAssumptions.sep_rule_states` (an editable Yes/No-per-state list on the Distribution tab,
+  seeded IN/VA/MO/WA/CA/MD/KY/DE) splits separate-rule vs regular states; each state blends toward its
+  group's average grid by sales volume (`port._blend_grids`). The engine threads `state` into the
+  mix-normalisations (`gender_mix/uw_mix/...`, `base_claim_cost`, `claim_class_factors`) and
+  `run._state_cells` reweights cells by `grid_weight(key,state)`. **Empty `by_state` ⇒ national fallback
+  (TX stays exact).**
+- **Aging** is estimated from the **attained-age** claim progression (the data has only ~6 policy
+  durations, so the duration signal is unreliable): isolate cc by attained age, smooth with weighted
+  isotonic regression (`claims._isotonic`), and walk it out from the exposure-weighted reference issue
+  age into a monotone ≥1 duration curve.
+- **Selection** is **credibility-blended toward current pricing** per `(issue_age, uw, duration)` using
+  per-cell exposure; thin cells (e.g. duration 6) revert to pricing. The tab shows current vs experience
+  vs adopted across all durations.
+- **Adopt premiums also writes `cell_premiums` from the sales averages** (the per-cell table dominates
+  pricing), so adopting actually moves priced premiums; covered cells only, others keep their premium.
+- **Multi-state tables**: `tools/generate_seed.py` merges `tools/multistate_reference.json` (28-state
+  morbidity/termination/commission/premium-state tables recovered from the pre-TX-regen commit) under the
+  workbook-derived values, so a TX-focused workbook no longer collapses the book to TX/All. TX-calibrated
+  values still win (`Input!Z1`, per-cell premiums) → TX stays exact; `available_states()` offers all ~28.
 - **Premium pull-forward** now applies to the per-cell premium branch in `lookups.premium_for_cell`
   (`× (1+premium_trend)^duration`), so a premium-increase stress flows to loss ratios; `premium_trend=0`
   (default) leaves per-cell premiums verbatim, so TX stays exact.

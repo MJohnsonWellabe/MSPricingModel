@@ -89,6 +89,14 @@ view.
   **credibility-blended** toward current pricing, `Z = min(1, √(exposure/standard))` with
   a full-credibility standard you set; bands with no experience keep the pricing value.
   **Aging** is isolated and forced monotone ≥ 1. The tab shows **current vs suggested**.
+- **Aging** is estimated from how claims rise with **attained age** (the data here has
+  only ~6 policy durations, so the duration signal is unreliable); the curve is smoothed
+  (isotonic) and monotone ≥ 1. **Selection** is credibility-blended toward current pricing
+  and shown current vs experience vs adopted across all durations (thin durations revert).
+  Adopting **premiums** also writes per-cell premiums from the sales averages so it moves
+  priced premium. **Distribution** is per-state, blended toward the average of like-type
+  states — **separate-rule** states (editable Yes/No on the Distribution tab) skew to
+  open-enrolment; regular states skew underwritten.
 - **AE analysis** compares actual claims to expected (best-estimate assumptions,
   excluding the pricing antiselection load) at selectable granularity.
 

@@ -13,12 +13,46 @@ import copy
 import math
 from collections import defaultdict
 
+from ..engine import lookups as L
 from ..models.assumptions import AssumptionSet
 from .credibility import blend, credibility_z
 from .decomp import differential, fit_main_effects
 
 # index of each dimension within the cell-key tuple used by aggregate_sales
 _DIM_INDEX = {"issue_age": 0, "gender": 1, "plan": 2, "uw": 3, "preferred": 4, "hhd": 5}
+
+
+def _cell_label(k) -> str:
+    """Cell-key tuple (issue_age,gender,plan,uw,preferred,hhd) -> CellKey label."""
+    age, g, plan, uw, pref, hhd = k
+    return f"{int(age)}{g}-{plan}-{uw}-P{pref}-H{hhd}"
+
+
+def _blend_grids(own: dict, target: dict, z: float) -> dict:
+    """Credibility-blend two distribution blocks: z*own + (1-z)*target, renormalised."""
+    out = {}
+    # joint grid
+    joint: dict = {}
+    keys = set(own["joint"]) | set(target["joint"])
+    tot = 0.0
+    for pl in keys:
+        oa, ta = own["joint"].get(pl, {}), target["joint"].get(pl, {})
+        for a in set(oa) | set(ta):
+            ow, tw = oa.get(a, {}), ta.get(a, {})
+            for u in set(ow) | set(tw):
+                w = blend(ow.get(u, 0.0), tw.get(u, 0.0), z)
+                if w:
+                    joint.setdefault(pl, {}).setdefault(a, {})[u] = w
+                    tot += w
+    tot = tot or 1.0
+    out["joint"] = {pl: {a: {u: round(w / tot, 8) for u, w in uws.items()}
+                         for a, uws in ages.items()} for pl, ages in joint.items()}
+    for dim in ("gender", "preferred", "hhd"):
+        od, td = own.get(dim, {}), target.get(dim, {})
+        m = {v: blend(od.get(v, 0.0), td.get(v, 0.0), z) for v in set(od) | set(td)}
+        s = sum(m.values()) or 1.0
+        out[dim] = {v: round(w / s, 8) for v, w in m.items()}
+    return out
 
 
 def _distribution_block(counts: dict) -> dict:
@@ -42,10 +76,12 @@ def _distribution_block(counts: dict) -> dict:
     return out
 
 
-def apply_sales(asm: AssumptionSet, sales: dict, parts=("distribution", "premium")) -> AssumptionSet:
+def apply_sales(asm: AssumptionSet, sales: dict, parts=("distribution", "premium"),
+                distribution_cred_standard: float = 1000.0) -> AssumptionSet:
     """Return a copy of ``asm`` with distribution weight factors and/or the premium
     factor model recalibrated from the sales aggregation. ``parts`` selects which
-    blocks to adopt (default both)."""
+    blocks to adopt. Per-state grids are credibility-blended toward the average of
+    their like-type (separate-rule vs regular) states."""
     new = copy.deepcopy(asm)
     parts = set(parts)
     counts = sales["counts"]            # cell-key tuple -> total applications
@@ -54,19 +90,37 @@ def apply_sales(asm: AssumptionSet, sales: dict, parts=("distribution", "premium
     state_counts = sales.get("state_counts", {})   # cell-key -> {state: count}
 
     # ---- distribution: a national joint plan x issue-age x UW grid + gender/preferred/
-    # HHD marginals, AND a per-state grid (GI/OE/UW and plan mix vary by state) ----
+    # HHD marginals, AND a per-state grid blended toward the like-type average ----
     if "distribution" in parts and counts:
         nat = _distribution_block(counts)
         new.distribution.joint = nat["joint"]
         for dim in ("gender", "preferred", "hhd"):
             setattr(new.distribution, dim, nat[dim])
-        # per-state grids from the per-(cell, state) counts
+        # per-state cell counts
         by_state_counts: dict = defaultdict(dict)
+        state_total: dict = defaultdict(float)
         for k, per_state in state_counts.items():
             for s, c in per_state.items():
                 by_state_counts[s][k] = c
-        new.distribution.by_state = {
-            s: _distribution_block(ck) for s, ck in by_state_counts.items() if ck}
+                state_total[s] += c
+        # group states into separate-rule vs regular and form each group's average grid
+        sep = set(new.distribution.sep_rule_states or [])
+        group_counts = {"sep": defaultdict(float), "reg": defaultdict(float)}
+        for s, ck in by_state_counts.items():
+            g = "sep" if s in sep else "reg"
+            for k, c in ck.items():
+                group_counts[g][k] += c
+        group_grid = {g: _distribution_block(c) for g, c in group_counts.items() if c}
+        # each state's own grid, credibility-blended toward its group's average grid
+        new.distribution.by_state = {}
+        for s, ck in by_state_counts.items():
+            if not ck:
+                continue
+            own = _distribution_block(ck)
+            g = "sep" if s in sep else "reg"
+            target = group_grid.get(g, nat)
+            z = credibility_z(state_total[s], distribution_cred_standard)
+            new.distribution.by_state[s] = _blend_grids(own, target, z)
 
     # ---- premium: ISOLATED multivariate main-effects fit (key dims 0=age, 1=gender,
     # 2=plan, 3=uw, 4=preferred, 5=hhd), so each differential holds the others fixed
@@ -100,6 +154,22 @@ def apply_sales(asm: AssumptionSet, sales: dict, parts=("distribution", "premium
             sf = {s: round(math.exp(sum(v) / len(v)), 6) for s, v in st_logs.items()}
             sf.setdefault("All", 1.0)
             p.state_factor = sf
+
+        # per-cell premiums from the sales averages, so adopting premiums actually moves
+        # priced premiums (the per-cell table dominates lookups.premium_for_cell). Only
+        # cells the sales data covers are written; others keep the existing premium.
+        cell_prem = dict(p.cell_premiums)
+        for k, comp in avg_premium.items():
+            if comp <= 0:
+                continue
+            label = _cell_label(k)
+            entry = dict(cell_prem.get(label, {}))
+            entry["All"] = round(float(comp), 4)
+            for s, sp in state_prem.get(k, {}).items():
+                if sp > 0:
+                    entry[s] = round(float(sp), 4)
+            cell_prem[label] = entry
+        p.cell_premiums = cell_prem
     return new
 
 
@@ -163,11 +233,29 @@ def apply_claims(asm: AssumptionSet, claims: dict,
             if f > 0:
                 morb.state_factors[state] = f
 
-    # UW selection factors by (issue_age, uw, duration)
+    # UW selection by (issue_age, uw, duration), credibility-blended toward the current
+    # pricing selection (thin cells, e.g. high durations, revert to pricing).
     if "selection" in parts:
         rows = claims.get("selection_rows")
         if rows:
-            morb.selection_factors = [dict(r) for r in rows]
+            cur = {(r["issue_age"], r["uw"], r["duration"]): r["factor"]
+                   for r in morb.selection_factors}
+            exp_rows = {(r["issue_age"], r["uw"], r["duration"]): r for r in rows}
+            new_rows = []
+            for key in sorted(set(cur) | set(exp_rows)):
+                age, uw, d = key
+                pricing = cur.get(key)
+                if pricing is None:
+                    pricing = L.selection_factor(new, age, uw, d)
+                er = exp_rows.get(key)
+                if er:
+                    z = credibility_z(er.get("exposure", 0.0), credibility_standard)
+                    factor = blend(er["factor"], pricing, z)
+                else:
+                    factor = pricing   # revert to pricing where no experience
+                new_rows.append({"issue_age": age, "uw": uw, "duration": d,
+                                 "factor": round(factor, 6)})
+            morb.selection_factors = new_rows
 
     # claim-cost aging (antiselection P): isolated, monotone >=1 curve -> increments
     if "aging" in parts:

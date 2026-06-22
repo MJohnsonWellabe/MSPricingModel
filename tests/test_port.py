@@ -37,7 +37,9 @@ def test_apply_claims_adopts_base_gender_state_selection(asm):
         "base_cc_by_issue_age": {"G": {a: 1000.0 for a in ages}},  # flat observed G level
         "gender_diff": 0.20,
         "state_factors": {"CA": 1.5},
-        "selection_rows": [{"issue_age": 65, "uw": "UW", "duration": 1, "factor": 0.8}],
+        # full credibility (high exposure) so the experience value is adopted as-is
+        "selection_rows": [{"issue_age": 65, "uw": "UW", "duration": 1,
+                            "factor": 0.8, "exposure": 1e9}],
         "aging_by_duration": {},
     }
     new = apply_claims(asm, claims)
@@ -45,8 +47,11 @@ def test_apply_claims_adopts_base_gender_state_selection(asm):
     assert new.morbidity.base_cc["F"] == asm.morbidity.base_cc["F"]  # plan F untouched
     assert new.morbidity.gender_cc_diff == 0.20
     assert new.morbidity.state_factors["CA"] == 1.5
-    assert new.morbidity.selection_factors == [
-        {"issue_age": 65, "uw": "UW", "duration": 1, "factor": 0.8}]
+    # the covered cell is blended to experience; other model rows are preserved (pricing)
+    blended = {(r["issue_age"], r["uw"], r["duration"]): r["factor"]
+               for r in new.morbidity.selection_factors}
+    assert abs(blended[(65, "UW", 1)] - 0.8) < 1e-6
+    assert len(new.morbidity.selection_factors) == len(asm.morbidity.selection_factors)
 
 
 def test_apply_claims_parts_and_revert_to_pricing(asm):
@@ -98,3 +103,24 @@ def test_apply_claims_credibility_blends_toward_pricing(asm):
     # Z = sqrt(250/1000) = 0.5 -> halfway between pricing and experience
     new = apply_claims(asm, claims, parts=("base_cc",), credibility_standard=1000.0)
     assert abs(new.morbidity.base_cc["G"][0] - (old + 500.0)) < 1e-3
+
+
+def test_apply_sales_sep_rule_blend_and_cell_premiums(asm):
+    # one sep-rule state (all OE) and one regular state (all UW); each blends toward its
+    # OWN group's average (here each group is one state) and builds per-cell premiums.
+    asm.distribution.sep_rule_states = ["CA"]
+    k_oe = (65, "M", "G", "OE", "Y", "Y")
+    k_uw = (65, "M", "G", "UW", "Y", "Y")
+    sales = {
+        "counts": {k_oe: 50.0, k_uw: 50.0},
+        "weights": {}, "avg_premium": {k_oe: 2000.0, k_uw: 2100.0},
+        "state_premiums": {k_oe: {"CA": 1900.0}, k_uw: {"TX": 2080.0}},
+        "state_counts": {k_oe: {"CA": 50.0}, k_uw: {"TX": 50.0}},
+    }
+    new = apply_sales(asm, sales, distribution_cred_standard=1.0)   # full credibility
+    assert new.distribution.uw_mix("CA") == {"OE": 1.0}    # sep state -> its own OE mix
+    assert new.distribution.uw_mix("TX") == {"UW": 1.0}    # regular state -> its UW mix
+    # per-cell premiums were written from the sales averages
+    from medigap_engine.models.cell import CellKey
+    from medigap_engine.engine import lookups as L
+    assert abs(L.premium_for_cell(new, CellKey(*k_oe), "CA") - 1900.0) < 1e-6

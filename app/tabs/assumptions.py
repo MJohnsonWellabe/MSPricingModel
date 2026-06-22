@@ -15,6 +15,7 @@ from app.state import (
     reset_assumptions,
     solve_toggle,
 )
+from medigap_engine.io.defaults import available_states
 from medigap_engine.models.assumptions import PROJECTION_YEARS
 
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -348,6 +349,18 @@ def _distribution(asm) -> None:
     with cols[2]:
         st.markdown("**HHD**")
         d.hhd = _marg("HHD", d.hhd, "w_hhd")
+
+    st.subheader("Separate-rule states")
+    st.caption("Mark each state Yes/No. Separate community-rating-rule states have a "
+               "different UW mix (skew to open-enrolment); the experience study blends each "
+               "state's distribution toward the average of its like type.")
+    all_states = [s for s in available_states() if s != "All"]
+    sep = set(d.sep_rule_states or [])
+    sdf = pd.DataFrame({"sep_rule": [s in sep for s in all_states]}, index=all_states)
+    sed = st.data_editor(
+        sdf, use_container_width=True, height=320, key="dist_sep_rule",
+        column_config={"sep_rule": st.column_config.CheckboxColumn("Separate rule?")})
+    d.sep_rule_states = [s for s in all_states if bool(sed["sep_rule"].get(s, False))]
 
 
 def _termination(asm) -> None:
