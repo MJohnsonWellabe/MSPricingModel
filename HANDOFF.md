@@ -175,15 +175,23 @@ the approximations when present:
   `morbidity.state_factors["TX"]`.
 - **Antiselection**: claims `P = (1+aging)·P_{d-1} + 0.5·(rerate−trend)` (λ_claims=0.5); the workbook
   **lapse has no antiselective load** (λ_lapse=0). Termination dur2/dur3 scaling (×1.05/×1.10) is real.
+- **Claims base cost is by ISSUE age** (constant across duration), matching the workbook Output/Aggregate
+  — `engine/project.py` & `engine/forward_solver.py` pass `key.issue_age` (not attained) to
+  `base_claim_cost`. Mortality and aging-rerate stay attained-age. (The single-cell *Model* sheet uses
+  attained age via `M12`, but the batch Output that feeds the Aggregate uses issue age; the book matches
+  issue age.)
+- **GI commission is paid in year 1 only** (flat `gi_flat`, no lives factor); zero thereafter. **NII in
+  year 1** uses the current IBNR (no prior IBNR to average — the workbook's `AVERAGE` skips the blank
+  prior cell). See the `commission`/`nii` rows in `engine/formulas.py`.
 - **TX matches with solving OFF** (the workbook uses its specified rerate schedule). The default keeps
   `solve=True` so every other state still prices; turn solve off to validate TX.
 
-Status (`tests/test_tx_validation.py`, harness `tools/compare_tx.py`): **lives, earned premium and the
-expense lines match exactly**; **claims match at duration 1** and track within ~15% mid-duration — a
-small per-cell base-cost mix drift is still under investigation (needs the per-cell `Output` sheet).
-The assumptions `.xlsx` artifact for Excel mapping is `docs/tx_assumptions.xlsx` (note: the `.xlsx`
-export does **not** carry `cell_premiums`/raw factors — those live in the workbook's Input/Assumptions
-sheets). Excel up/download of assumptions: `io/excel_export.py` ↔ `io/excel_import.py`.
+Status (`tests/test_tx_validation.py`, harness `tools/compare_tx.py`): **TX reproduces the workbook
+Aggregate Model EXACTLY on every line** — lives, earned premium, NII, claims, commission, premium tax,
+all expenses, pre/after-tax income, interest on capital, distributable income and loss ratio (0.0% at
+every duration). The assumptions `.xlsx` artifact for Excel mapping is `docs/tx_assumptions.xlsx` (note:
+the `.xlsx` export does **not** carry `cell_premiums`/raw factors — those live in the workbook's
+Input/Assumptions sheets). Excel up/download of assumptions: `io/excel_export.py` ↔ `io/excel_import.py`.
 
 ## 9. UI tabs
 Configuration (scope, sensitivities, solve toggle, **full model export/import**, Run) ·

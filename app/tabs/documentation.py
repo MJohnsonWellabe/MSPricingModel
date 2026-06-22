@@ -136,9 +136,14 @@ premiums** (used verbatim, no premium pull-forward — the entered premium is al
 the pricing rate), **raw preferred/HHD claim factors** (the workbook's AT/AU columns;
 preferred applies for the UW class only), and the **morbidity state factor** (a
 per-run scalar). Claims antiselection is `P = (1+aging)·P + 0.5·(rerate − trend)`;
-the lapse has no antiselective load. The distribution is a joint plan × issue-age ×
-UW grid. To match the workbook, run with **solving off** (the workbook uses its
-specified rerate schedule); other states keep solving on by default.
+the lapse has no antiselective load. The **claims base cost is indexed by issue age**
+(constant across duration), matching the workbook Output/Aggregate; mortality and
+aging-rerate use attained age. **GI commission** is paid in year 1 only, and
+**year-1 NII** uses the current IBNR (no prior to average). The distribution is a
+joint plan × issue-age × UW grid. Run with **solving off** to match the workbook (it
+uses its specified rerate schedule); other states keep solving on by default. With
+these, the engine reproduces the workbook's per-state Aggregate Model exactly on
+every line (lives, premium, claims, commission, expenses, income, loss ratio).
 
 ### Full model export / import
 The Configuration tab can download and upload a single JSON capturing the **entire

@@ -98,7 +98,9 @@ def project_cell(
             acq_active=1.0 if d == 1 else 0.0,
             first_year=1.0 if d == 1 else 0.0,
             aging_p=L.cc_aging_duration(asm, d),
-            base_cc=L.base_claim_cost(asm, key.gender, attained, key.plan)
+            # claims base cost is by ISSUE age (constant across duration), matching the
+            # workbook Output/Aggregate; mortality & aging-rerate stay attained-age
+            base_cc=L.base_claim_cost(asm, key.gender, key.issue_age, key.plan)
             * L.claim_class_factors(asm, key.uw_class, key.preferred, key.hhd),
             selection=L.selection_factor(asm, key.issue_age, key.uw_class, d),
             lapse_base=L.lapse_rate(asm, key.uw_class, d) * lapse_state_factor,

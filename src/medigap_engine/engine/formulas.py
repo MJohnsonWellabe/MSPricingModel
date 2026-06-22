@@ -167,15 +167,16 @@ _DEFAULT_STEPS = [
      "ibnr_pct * claims",
      "Incurred-but-not-reported reserve."),
     ("nii", "Expenses",
-     "(ibnr_prev + ibnr) / 2 * nier",
-     "Net investment income on average IBNR."),
+     "nier * where(first_year, ibnr, (ibnr_prev + ibnr) / 2)",
+     "Net investment income on average IBNR (year 1 has no prior IBNR to average)."),
     ("comm_base", "Expenses",
      "yr1_prem - planf_offset_d",
      "Commission base premium (year-1 premium less the plan-F offset)."),
     ("commission", "Expenses",
-     "where(is_gi, gi_flat * avg_lives, "
+     "where(is_gi, gi_flat * first_year, "
      "comm_age_mult * comm_rate * comm_base * avg_lives)",
-     "Commission: flat for GI, else rate x base x lives (halved for age >= 80)."),
+     "Commission: flat GI payment in year 1 only, else rate x base x lives "
+     "(halved for age >= 80)."),
     ("premium_tax", "Expenses",
      "premium_tax_rate * earned_prem",
      "Premium tax."),

@@ -53,12 +53,15 @@ def precompute(cells, asm: AssumptionSet, state: str) -> dict:
         gi[ci] = k.uw_class == "GI"
         planf[ci] = k.plan == "F"
         age80[ci] = k.issue_age >= 80
+        # claims base cost is by ISSUE age (constant across duration), matching the
+        # workbook Output/Aggregate; mortality & aging-rerate stay attained-age
+        cell_claim_base = L.base_claim_cost(asm, k.gender, k.issue_age, k.plan) * cls
         for i in range(n):
             d = i + 1
             attained = k.issue_age + d - 1
             lapse_base[ci, i] = L.lapse_rate(asm, k.uw_class, d) * lapse_state
             mort[ci, i] = asm.termination.mortality(attained)
-            claim_base[ci, i] = L.base_claim_cost(asm, k.gender, attained, k.plan) * cls
+            claim_base[ci, i] = cell_claim_base
             selection[ci, i] = L.selection_factor(asm, k.issue_age, k.uw_class, d)
             aging_h[ci, i] = L.aging_rerate(asm, attained) if d >= 2 else 0.0
             comm_rate[ci, i] = asm.commission.rate(state, d, k.plan)
