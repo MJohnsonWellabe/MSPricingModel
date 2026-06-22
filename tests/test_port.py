@@ -35,16 +35,30 @@ def test_apply_sales_updates_distribution_and_premium(asm):
 def test_apply_claims_adopts_base_gender_state_selection(asm):
     ages = asm.morbidity.ages
     claims = {
-        "base_cc_by_age": {"G": {a: 1000.0 for a in ages}},   # flat observed G curve
+        "base_cc_by_issue_age": {"G": {a: 1000.0 for a in ages}},  # flat observed G level
         "gender_diff": 0.20,
         "state_factors": {"CA": 1.5},
         "selection_rows": [{"issue_age": 65, "uw": "UW", "duration": 1, "factor": 0.8}],
         "aging_by_duration": {},
     }
     new = apply_claims(asm, claims)
-    assert new.morbidity.base_cc["G"] == [1000.0] * len(ages)   # adopted age curve
+    assert new.morbidity.base_cc["G"] == [1000.0] * len(ages)   # adopted by issue age
     assert new.morbidity.base_cc["F"] == asm.morbidity.base_cc["F"]  # plan F untouched
     assert new.morbidity.gender_cc_diff == 0.20
     assert new.morbidity.state_factors["CA"] == 1.5
     assert new.morbidity.selection_factors == [
         {"issue_age": 65, "uw": "UW", "duration": 1, "factor": 0.8}]
+
+
+def test_apply_claims_parts_and_revert_to_pricing(asm):
+    # partial adopt: only base_cc; bands without data keep the pricing value
+    old_state = dict(asm.morbidity.state_factors)
+    ages = asm.morbidity.ages
+    partial = {a: 1000.0 for a in ages if a != ages[-1]}   # last band has no data
+    claims = {"base_cc_by_issue_age": {"G": partial}, "gender_diff": 0.5,
+              "state_factors": {"CA": 9.9}}
+    new = apply_claims(asm, claims, parts=("base_cc",))
+    assert new.morbidity.base_cc["G"][0] == 1000.0
+    assert new.morbidity.base_cc["G"][-1] == asm.morbidity.base_cc["G"][-1]  # revert to pricing
+    assert new.morbidity.gender_cc_diff == asm.morbidity.gender_cc_diff      # not adopted
+    assert new.morbidity.state_factors == old_state                          # not adopted

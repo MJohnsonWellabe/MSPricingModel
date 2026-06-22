@@ -119,9 +119,12 @@ def _morbidity(asm) -> None:
     from medigap_engine.models.assumptions import derive_two_level, normalized_factors
 
     m = asm.morbidity
-    st.subheader("Base claim costs by plan and attained age")
-    st.caption("Base table is the gender blend; the gender relativity (normalised by the "
-               "gender mix) sends male up and female down while preserving the blend.")
+    st.subheader("Base claim costs by plan and issue age")
+    st.caption("Claim base cost is indexed by **issue age** (held across durations; "
+               "duration effects come from trend, selection and antiselection), so only "
+               "the issue ages the book prices appear here. The base table is the gender "
+               "blend; the gender relativity (normalised by the gender mix) sends male up "
+               "and female down while preserving the blend.")
     dfb = pd.DataFrame(m.base_cc, index=m.ages)
     edb = st.data_editor(dfb, use_container_width=True, height=300, key="cc_base")
     for p in m.plans:

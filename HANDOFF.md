@@ -179,7 +179,9 @@ the approximations when present:
   — `engine/project.py` & `engine/forward_solver.py` pass `key.issue_age` (not attained) to
   `base_claim_cost`. Mortality and aging-rerate stay attained-age. (The single-cell *Model* sheet uses
   attained age via `M12`, but the batch Output that feeds the Aggregate uses issue age; the book matches
-  issue age.)
+  issue age.) Because of this, `generate_seed` **prunes `morbidity.base_cc`/`morbidity.ages` to just the
+  issue-age bands the cell universe prices** (e.g. 65/68/73/77/83/85) — the rest of the 65-100 range was
+  only needed when base cost aged by duration. `base_claim_cost` clamps/nearest-fills off-table ages.
 - **GI commission is paid in year 1 only** (flat `gi_flat`, no lives factor); zero thereafter. **NII in
   year 1** uses the current IBNR (no prior IBNR to average — the workbook's `AVERAGE` skips the blank
   prior cell). See the `commission`/`nii` rows in `engine/formulas.py`.
@@ -198,6 +200,15 @@ state's `Z1` + targets and diff with the state-parameterised harness (solve off)
 single source of truth** (`asm.rerates.solve`) shared by the Configuration and Assumptions→Rerates tabs
 via `app/state.solve_toggle` — toggling either updates both. The Premium tab surfaces **per-cell
 premiums** (edit one state at a time; a Clear button reverts to the factor model).
+
+**Experience study** (`experience/claims.py`, `ae.py`, `port.py`): exposure is **life-years =
+`cnt × earned/annualized_prem`** (the earned fraction of a policy-year), falling back to `cnt/12` only
+when premium is absent — using a hardcoded `cnt/12` on non-monthly rows over-divides and inflates the
+observed claim cost. Derived claim cost is keyed by **issue age** (bucketed to the key bands by
+`schema.nearest_band`), matching the engine. `apply_claims`/`apply_sales` take a `parts` argument so the
+UI can **adopt each table separately** (base cost / gender / state / selection; distribution / premium)
+or all at once; where an issue-age band has no experience the **current pricing value is kept** (revert
+to pricing — no smoothing/extrapolation). `ae.expected_cc_per_life` also indexes base cost by issue age.
 
 ## 9. UI tabs
 Configuration (scope, sensitivities, solve toggle, **full model export/import**, Run) ·

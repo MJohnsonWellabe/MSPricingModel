@@ -116,10 +116,28 @@ def _sales_section() -> None:
             "Non-HHD differential", value=float(p.hhd_diff),
             step=0.01, format="%.3f", key="sales_hhd_diff")
 
-    if st.button("Adopt distribution & premiums", type="primary", key="sales_adopt"):
+    st.caption("Adopt the distribution mix and the premium factor model separately, or "
+               "both at once. (Edited differentials above are included in the premium adopt.)")
+
+    def _adopt_sales(parts, msg):
+        import copy
         from app.state import set_assumptions
-        set_assumptions(suggested)
-        st.success("Adopted into the distribution and premium factor tables.")
+        new = copy.deepcopy(get_assumptions())
+        if "distribution" in parts:
+            new.distribution = copy.deepcopy(suggested.distribution)
+        if "premium" in parts:
+            new.premium = copy.deepcopy(suggested.premium)
+        set_assumptions(new)
+        st.success(msg)
+
+    sc = st.columns(3)
+    if sc[0].button("Adopt distribution", key="sales_adopt_dist"):
+        _adopt_sales(("distribution",), "Adopted the distribution weight grid.")
+    if sc[1].button("Adopt premiums", key="sales_adopt_prem"):
+        _adopt_sales(("premium",), "Adopted the premium factor tables.")
+    if sc[2].button("Adopt all", type="primary", key="sales_adopt"):
+        _adopt_sales(("distribution", "premium"),
+                     "Adopted the distribution and premium factor tables.")
 
 
 def _claims_section() -> None:
@@ -147,8 +165,8 @@ def _claims_section() -> None:
     st.success(f"Parsed {m['n_rows']:,} rows; observed overall claim cost "
                f"${m['overall_cc']:,.0f}/life-year.")
 
-    st.markdown("**Base claim cost by plan & attained age** (gender blend)")
-    bca = m["base_cc_by_age"]
+    st.markdown("**Base claim cost by plan & issue age** (gender blend, per life-year)")
+    bca = m["base_cc_by_issue_age"]
     ages = sorted({a for p in bca.values() for a in p})
     dfb = pd.DataFrame({p: {a: round(bca.get(p, {}).get(a, float("nan")), 0) for a in ages}
                         for p in sorted(bca)})
@@ -177,14 +195,29 @@ def _claims_section() -> None:
         sel.setdefault(uw, {})[d] = round(f, 3)
     st.dataframe(pd.DataFrame(sel), use_container_width=True, height=200)
 
-    st.caption("Adopt sets base claim cost by age, the gender differential, state morbidity "
-               "factors, and UW selection factors. Claim-cost aging is a diagnostic (not "
-               "auto-adopted). Lapse, mortality, trend, commission and economic assumptions "
-               "are not in the claims data and stay manual.")
-    if st.button("Adopt morbidity", type="primary", key="claims_adopt"):
+    st.caption("Adopt each piece separately, or all at once. Where an issue-age band (or "
+               "plan) has no claims experience, the current pricing value is kept — no "
+               "smoothing or extrapolation (revert to pricing). Claim-cost aging is a "
+               "diagnostic (not adopted). Lapse, mortality, trend, commission and economic "
+               "assumptions are not in the claims data and stay manual.")
+
+    def _adopt_claims(parts, msg):
         from app.state import set_assumptions
-        set_assumptions(apply_claims(get_assumptions(), m))
-        st.success("Adopted base claim cost, gender differential, state factors, and selection.")
+        set_assumptions(apply_claims(get_assumptions(), m, parts=parts))
+        st.success(msg)
+
+    ac = st.columns(5)
+    if ac[0].button("Adopt base claim cost", key="claims_adopt_base"):
+        _adopt_claims(("base_cc",), "Adopted base claim cost by issue age.")
+    if ac[1].button("Adopt gender diff", key="claims_adopt_gender"):
+        _adopt_claims(("gender",), "Adopted the gender differential.")
+    if ac[2].button("Adopt state factors", key="claims_adopt_state"):
+        _adopt_claims(("state",), "Adopted state morbidity factors.")
+    if ac[3].button("Adopt selection", key="claims_adopt_sel"):
+        _adopt_claims(("selection",), "Adopted UW selection factors.")
+    if ac[4].button("Adopt all", type="primary", key="claims_adopt"):
+        _adopt_claims(("base_cc", "gender", "state", "selection"),
+                      "Adopted base claim cost, gender differential, state factors, and selection.")
 
 
 def _ae_section() -> None:

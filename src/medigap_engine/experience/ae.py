@@ -10,8 +10,7 @@ from __future__ import annotations
 from ..models.assumptions import AssumptionSet
 from ..engine import lookups as L
 from .schema import normalize_claims
-
-MONTHS_PER_YEAR = 12.0
+from .claims import exposure_life_years
 
 
 def _trend_factor(asm: AssumptionSet, duration: int) -> float:
@@ -25,12 +24,12 @@ def _trend_factor(asm: AssumptionSet, duration: int) -> float:
 
 def expected_cc_per_life(asm: AssumptionSet, gender: str, issue_age: int,
                          plan: str, uw: str, duration: int, state: str) -> float:
-    attained = issue_age + duration - 1
+    # base claim cost is indexed by ISSUE age (matches the engine), not attained age
     if gender in ("M", "F"):
-        base = L.base_claim_cost(asm, gender, attained, plan)
+        base = L.base_claim_cost(asm, gender, issue_age, plan)
     else:  # unknown gender -> blend male/female
-        base = 0.5 * (L.base_claim_cost(asm, "M", attained, plan)
-                      + L.base_claim_cost(asm, "F", attained, plan))
+        base = 0.5 * (L.base_claim_cost(asm, "M", issue_age, plan)
+                      + L.base_claim_cost(asm, "F", issue_age, plan))
     sel = L.selection_factor(asm, issue_age, uw, duration)
     state_f = asm.morbidity.state_factors.get(state, asm.morbidity.state_factors.get("All", 1.0))
     return base * sel * _trend_factor(asm, duration) * state_f
@@ -45,7 +44,7 @@ def actual_to_expected(rows, asm: AssumptionSet, by=("state",)) -> list[dict]:
     canon = normalize_claims(rows)
     groups: dict[tuple, dict] = {}
     for r in canon:
-        exp_ly = r["cnt"] / MONTHS_PER_YEAR
+        exp_ly = exposure_life_years(r)
         actual = r["adj_claims"]
         expected = expected_cc_per_life(
             asm, r["gender"], r["issue_age"], r["plan"], r["uw_class"],

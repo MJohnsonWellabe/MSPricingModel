@@ -7,15 +7,15 @@ from __future__ import annotations
 from ..models.assumptions import AssumptionSet, derive_two_level, normalized_factors
 
 
-def base_claim_cost(asm: AssumptionSet, gender: str, attained_age: int, plan: str) -> float:
-    """Base (gender-blend) claim cost by attained age and plan, scaled by the
-    gender relativity normalised against the gender mix and brought forward to the
-    pricing period by the one-time claims pull-forward. Ages outside the table
-    clamp to the nearest end; intermediate ages use the nearest age at or below."""
+def base_claim_cost(asm: AssumptionSet, gender: str, age: int, plan: str) -> float:
+    """Base (gender-blend) claim cost by **issue age** and plan, scaled by the gender
+    relativity normalised against the gender mix and brought forward to the pricing
+    period by the one-time claims pull-forward. Ages outside the table clamp to the
+    nearest end; intermediate ages use the nearest age at or below."""
     morb = asm.morbidity
     ages = morb.ages
     table = morb.base_cc[plan]
-    a = max(ages[0], min(attained_age, ages[-1]))
+    a = max(ages[0], min(age, ages[-1]))
     if a in ages:
         idx = ages.index(a)
     else:

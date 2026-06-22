@@ -77,13 +77,18 @@ view.
 
 ### Experience study (raw data → assumptions)
 - **Sales data** (raw rows) is aggregated to per-cell distribution weights and
-  average premiums (overall and by state); *Adopt* writes them into the cell
-  universe, overriding the defaults.
-- **Claims data** (raw rows, cols A:Q) yields observed claim cost per life
-  (`Σ adj_claims / Σ (cnt/12)` life-years), state factors, UW selection by
-  duration, and claim-cost aging by duration. *Adopt* recalibrates the base
-  claim-cost level (per plan) and state factors; selection/aging are surfaced for
-  judgement.
+  average premiums (overall and by state). You can *Adopt distribution*,
+  *Adopt premiums*, or *Adopt all* separately.
+- **Claims data** yields observed claim cost per life. Exposure is measured in
+  **life-years = `cnt × earned/annualized_prem`** (the earned fraction of a
+  policy-year), so monthly, quarterly or annual rows are all handled correctly;
+  a plain `cnt/12` would over-divide non-monthly data and report costs that are
+  far too high. Claim cost is keyed by **issue age** (everyone is bucketed into the
+  key issue-age bands), matching how the engine prices. *Adopt* is granular —
+  base claim cost, gender differential, state factors and UW selection can each be
+  adopted on their own, or all together. Where an issue-age band has **no
+  experience, the current pricing value is kept** (revert to pricing — no smoothing
+  or extrapolation). Selection and claim-cost aging are shown for judgement.
 - **AE analysis** compares actual claims to expected (best-estimate assumptions,
   excluding the pricing antiselection load) at selectable granularity.
 
@@ -111,10 +116,11 @@ sims (numpy) so hundreds of simulations run in seconds.
 
 ### Experience study coverage
 Sales data → distribution weights and the premium factor model. Claims data → base
-claim cost by plan & attained age, the gender differential, state morbidity factors,
-and UW selection by duration (claim-cost aging is a diagnostic). The suggested
-differentials are editable before adopting. Lapse, mortality, trend, commission and
-economic assumptions are not in the data and stay manual.
+claim cost by plan & issue age, the gender differential, state morbidity factors,
+and UW selection by duration (claim-cost aging is a diagnostic). Each table can be
+adopted separately or all at once; the suggested differentials are editable before
+adopting. Lapse, mortality, trend, commission and economic assumptions are not in the
+data and stay manual.
 
 ### Formula Database (editable engine)
 Every per-duration line item — lives, lapse, premium, claims, expenses, income and

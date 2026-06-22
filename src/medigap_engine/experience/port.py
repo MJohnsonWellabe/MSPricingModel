@@ -14,16 +14,17 @@ import math
 from collections import defaultdict
 
 from ..models.assumptions import AssumptionSet
-from ..engine import lookups as L
 
 # index of each dimension within the cell-key tuple used by aggregate_sales
 _DIM_INDEX = {"issue_age": 0, "gender": 1, "plan": 2, "uw": 3, "preferred": 4, "hhd": 5}
 
 
-def apply_sales(asm: AssumptionSet, sales: dict) -> AssumptionSet:
-    """Return a copy of ``asm`` with distribution weight factors and the premium
-    factor model recalibrated from the sales aggregation."""
+def apply_sales(asm: AssumptionSet, sales: dict, parts=("distribution", "premium")) -> AssumptionSet:
+    """Return a copy of ``asm`` with distribution weight factors and/or the premium
+    factor model recalibrated from the sales aggregation. ``parts`` selects which
+    blocks to adopt (default both)."""
     new = copy.deepcopy(asm)
+    parts = set(parts)
     counts = sales["counts"]            # cell-key tuple -> total applications
     avg_premium = sales["avg_premium"]  # cell-key tuple -> average premium
     state_prem = sales["state_premiums"]
@@ -31,7 +32,7 @@ def apply_sales(asm: AssumptionSet, sales: dict) -> AssumptionSet:
     # ---- distribution: joint plan x issue-age x UW grid (captures the
     # non-separable mix) plus independent gender / preferred / HHD marginals ----
     total = sum(counts.values()) or 1.0
-    if counts:
+    if "distribution" in parts and counts:
         grid: dict[str, dict[str, dict[str, float]]] = {}
         for k, c in counts.items():
             age, _g, plan, uw, _p, _h = k  # tuple order per _DIM_INDEX
@@ -49,7 +50,7 @@ def apply_sales(asm: AssumptionSet, sales: dict) -> AssumptionSet:
     # ---- premium: log main-effects decomposition weighted by count ----
     obs = [(k, math.log(p), counts.get(k, 0.0))
            for k, p in avg_premium.items() if p > 0 and counts.get(k, 0.0) > 0]
-    if obs:
+    if "premium" in parts and obs:
         wtot = sum(w for _, _, w in obs) or 1.0
         mu = sum(lp * w for _, lp, w in obs) / wtot
 
@@ -92,45 +93,43 @@ def apply_sales(asm: AssumptionSet, sales: dict) -> AssumptionSet:
     return new
 
 
-def _nearest(curve: dict, age: int):
-    """Observed value at ``age``, else the nearest observed age."""
-    if not curve:
-        return None
-    if age in curve:
-        return curve[age]
-    return curve[min(curve, key=lambda a: abs(a - age))]
-
-
-def apply_claims(asm: AssumptionSet, claims: dict) -> AssumptionSet:
+def apply_claims(asm: AssumptionSet, claims: dict,
+                 parts=("base_cc", "gender", "state", "selection")) -> AssumptionSet:
     """Return a copy of ``asm`` with the morbidity assumptions the claims data can
-    inform: base claim-cost curve by plan & attained age, the gender differential,
-    state morbidity factors, and UW selection factors. (Claim-cost aging is shown as
-    a diagnostic but not auto-adopted; lapse/mortality/trend are not in the data.)"""
+    inform: base claim-cost level by plan & **issue age**, the gender differential,
+    state morbidity factors, and UW selection factors. ``parts`` selects which to
+    adopt (default all). Where an (issue age, plan) has no experience, the existing
+    pricing value is retained — no smoothing or extrapolation (revert to pricing).
+    (Claim-cost aging is a diagnostic, not adopted; lapse/mortality/trend are not in
+    the data.)"""
     new = copy.deepcopy(asm)
     morb = new.morbidity
+    parts = set(parts)
 
-    # base claim cost by plan & attained age (gender blend); nearest-age fallback,
-    # scaled so the new table preserves the old per-plan level where data is thin
-    by_age = claims.get("base_cc_by_age", {})
-    for plan in morb.plans:
-        curve = by_age.get(plan)
-        if not curve:
-            continue
-        new_vals = [_nearest(curve, a) for a in morb.ages]
-        morb.base_cc[plan] = [round(v if v is not None else old, 4)
-                              for v, old in zip(new_vals, morb.base_cc[plan])]
+    # base claim cost by plan & ISSUE age (gender blend). Where a band has no data,
+    # keep the current pricing value (revert to pricing — no extrapolation).
+    if "base_cc" in parts:
+        by_issue = claims.get("base_cc_by_issue_age", {})
+        for plan in morb.plans:
+            curve = by_issue.get(plan)
+            if not curve:
+                continue
+            morb.base_cc[plan] = [round(curve[a], 4) if a in curve else old
+                                  for a, old in zip(morb.ages, morb.base_cc[plan])]
 
     # gender differential
-    if claims.get("gender_diff") is not None:
+    if "gender" in parts and claims.get("gender_diff") is not None:
         morb.gender_cc_diff = float(claims["gender_diff"])
 
     # state factors from observed relativities (keep existing where not observed)
-    for state, f in claims.get("state_factors", {}).items():
-        if f > 0:
-            morb.state_factors[state] = f
+    if "state" in parts:
+        for state, f in claims.get("state_factors", {}).items():
+            if f > 0:
+                morb.state_factors[state] = f
 
     # UW selection factors by (issue_age, uw, duration)
-    rows = claims.get("selection_rows")
-    if rows:
-        morb.selection_factors = [dict(r) for r in rows]
+    if "selection" in parts:
+        rows = claims.get("selection_rows")
+        if rows:
+            morb.selection_factors = [dict(r) for r in rows]
     return new

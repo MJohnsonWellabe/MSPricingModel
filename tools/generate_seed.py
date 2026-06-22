@@ -296,9 +296,18 @@ def main(path: str) -> None:
         assumptions["morbidity"]["state_factors"]["TX"] = round(float(z1), 8)
         assumptions["morbidity"]["state_factors"].setdefault("All", 1.0)
 
+    # claims base cost is indexed by ISSUE age, so keep only the issue-age bands the
+    # book actually prices (the distinct issue ages in the cell universe); the rest of
+    # the 65-100 attained-age range was only needed when base cost aged by duration.
+    m = assumptions["morbidity"]
+    band_ages = sorted({int(c["issue_age"]) for c in cells})
+    keep = [i for i, a in enumerate(m["ages"]) if a in band_ages]
+    if keep:
+        m["ages"] = [m["ages"][i] for i in keep]
+        m["base_cc"] = {pl: [vals[i] for i in keep] for pl, vals in m["base_cc"].items()}
+
     # convert morbidity base_cc (female) -> gender blend, and termination base_lapse
     # (OE) -> uw-mix blend, now that the distribution mix is known
-    m = assumptions["morbidity"]
     gmix = distribution["gender"]
     g_rel = {"M": 1.0 + m["gender_cc_diff"], "F": 1.0}
     gblend = sum(gmix.get(g, 0.0) * g_rel[g] for g in g_rel)
