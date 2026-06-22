@@ -7,7 +7,7 @@ Never average ratios directly.
 from __future__ import annotations
 
 from ..models.assumptions import AssumptionSet, PROJECTION_YEARS
-from ..models.results import CellResult, RunResult, StateResult
+from ..models.results import CellResult, StateResult
 from .metrics import irr, npv
 
 # Additive series safe to weight-and-sum: dollar line items plus inforce lives
@@ -46,11 +46,15 @@ def _finalise(series: dict[str, list[float]], asm: AssumptionSet) -> dict:
     series = dict(series)
     series["in_year_lr"] = in_year
     series["lifetime_lr"] = lifetime
+    rate = asm.other.discount_rate
+    # NPV of every income-statement line (source-of-margin analysis: each ÷ NPV premium)
+    npv_by_line = {k: npv(rate, series[k]) for k in _DOLLAR_SERIES}
     metrics = {
         "irr": irr(series["ah_cashflow"]),
         "lifetime_lr": lifetime[-1],
-        "npv_pretax": npv(asm.other.discount_rate, series["pretax_income"]),
-        "npv_premium": npv(asm.other.discount_rate, series["earned_prem"]),
+        "npv_pretax": npv_by_line["pretax_income"],
+        "npv_premium": npv_by_line["earned_prem"],
+        "npv_by_line": npv_by_line,
     }
     return series, metrics
 
@@ -66,6 +70,7 @@ def aggregate_cells(state: str, results: list[CellResult], asm: AssumptionSet) -
         state=state, series=series, cells=results, rerates=rerates,
         irr=metrics["irr"], lifetime_lr=metrics["lifetime_lr"],
         npv_pretax=metrics["npv_pretax"], npv_premium=metrics["npv_premium"],
+        npv_by_line=metrics["npv_by_line"],
     )
 
 
@@ -81,4 +86,5 @@ def aggregate_states(per_state: dict[str, StateResult], asm: AssumptionSet) -> S
         state="(combined)", series=series, cells=[],
         irr=metrics["irr"], lifetime_lr=metrics["lifetime_lr"],
         npv_pretax=metrics["npv_pretax"], npv_premium=metrics["npv_premium"],
+        npv_by_line=metrics["npv_by_line"],
     )

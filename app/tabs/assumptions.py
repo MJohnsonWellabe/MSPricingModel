@@ -175,6 +175,25 @@ def _morbidity(asm) -> None:
                          column_config={"Aging": st.column_config.NumberColumn(format="%.4f")})
     m.cc_aging_by_duration = aed["Aging"].tolist()
 
+    st.subheader("UW selection factors")
+    st.caption("Multiplier on base claim cost by (issue age, UW class, duration), referenced "
+               "to OE / duration-1 = 1.0 (claim = base_cc × selection). Edited per UW class "
+               "as an issue-age × duration grid; carried forward beyond the last duration.")
+    rows = m.selection_factors
+    issue_ages = sorted({r["issue_age"] for r in rows})
+    durs = sorted({r["duration"] for r in rows})
+    lookup = {(r["issue_age"], r["uw"], r["duration"]): r["factor"] for r in rows}
+    uw_pick = st.radio("UW class", ["UW", "OE", "GI"], horizontal=True, key="sel_uw_pick")
+    sdf = pd.DataFrame(
+        {f"d{d}": [float(lookup.get((a, uw_pick, d), 1.0)) for a in issue_ages] for d in durs},
+        index=issue_ages)
+    sed = st.data_editor(
+        sdf, use_container_width=True, key=f"sel_grid_{uw_pick}",
+        column_config={f"d{d}": st.column_config.NumberColumn(format="%.4f") for d in durs})
+    for r in rows:
+        if r["uw"] == uw_pick and f"d{r['duration']}" in sed.columns:
+            r["factor"] = float(sed.loc[r["issue_age"], f"d{r['duration']}"])
+
 
 def _rerates(asm) -> None:
     r = asm.rerates
@@ -300,28 +319,17 @@ def _cell_premiums(p) -> None:
                 cp.setdefault(label, {})[sel] = float(v)
 
 
-def _distribution(asm) -> None:
-    d = asm.distribution
-    st.subheader("Distribution weight grid")
-    st.caption(
-        "Plan × issue age × UW is a single **joint** weight grid (the mix varies "
-        "together and is not separable). Gender, preferred and household-discount are "
-        "independent marginals applied on top. The whole grid and each marginal should "
-        "sum to 1; a cell's weight is grid[plan, age, uw] × gender × preferred × hhd "
-        "(re-normalised at run time)."
-    )
-    plans = list(d.joint)
-    ages = sorted(d.by_issue_age)
-    uws = list(d.uw)
+def _edit_joint_grid(joint, ages, uws, key_prefix) -> float:
+    """Render/edit a joint plan×age×UW grid in place; return the grand total weight."""
     grand = 0.0
-    for pl in plans:
+    for pl in list(joint) or sorted({p for p in joint}):
         st.markdown(f"**Plan {pl}** — weight by issue age (rows) × UW class (columns)")
-        grid = d.joint.setdefault(pl, {})
+        grid = joint.setdefault(pl, {})
         df = pd.DataFrame(
             {u: [float(grid.get(str(a), {}).get(u, 0.0)) for a in ages] for u in uws},
             index=ages)
         ed = st.data_editor(
-            df, use_container_width=True, key=f"dist_grid_{pl}",
+            df, use_container_width=True, key=f"{key_prefix}_{pl}",
             column_config={u: st.column_config.NumberColumn(format="%.5f") for u in uws})
         sub = 0.0
         for u in uws:
@@ -332,35 +340,85 @@ def _distribution(asm) -> None:
                 sub += w
         grand += sub
         st.caption(f"Plan {pl} subtotal: {sub:.4f}")
-    st.caption(f"**Grid total across all plans: {grand:.4f}** (should be ~1.0)")
+    return grand
 
+
+def _edit_marginals(block, key_prefix) -> None:
+    """Render/edit gender/preferred/hhd marginals on a dict-like block in place. ``block``
+    may be the AssumptionSet.distribution or a by_state dict."""
     def _marg(label, mapping, key):
         new = _dict_editor(mapping, "Weight", key, fmt="%.5f")
         st.caption(f"{label} sums to {sum(new.values()):.4f}")
         return new
 
     cols = st.columns(3)
+    getter = (lambda k: block[k]) if isinstance(block, dict) else (lambda k: getattr(block, k))
+    setter = (block.__setitem__) if isinstance(block, dict) else (
+        lambda k, v: setattr(block, k, v))
     with cols[0]:
         st.markdown("**Gender**")
-        d.gender = _marg("Gender", d.gender, "w_gender")
+        setter("gender", _marg("Gender", getter("gender"), f"{key_prefix}_gender"))
     with cols[1]:
         st.markdown("**Preferred**")
-        d.preferred = _marg("Preferred", d.preferred, "w_pref")
+        setter("preferred", _marg("Preferred", getter("preferred"), f"{key_prefix}_pref"))
     with cols[2]:
         st.markdown("**HHD**")
-        d.hhd = _marg("HHD", d.hhd, "w_hhd")
+        setter("hhd", _marg("HHD", getter("hhd"), f"{key_prefix}_hhd"))
 
-    st.subheader("Separate-rule states")
-    st.caption("Mark each state Yes/No. Separate community-rating-rule states have a "
-               "different UW mix (skew to open-enrolment); the experience study blends each "
-               "state's distribution toward the average of its like type.")
+
+def _distribution(asm) -> None:
+    d = asm.distribution
+    st.subheader("Distribution weight grid (national)")
+    st.caption(
+        "Plan × issue age × UW is a single **joint** weight grid (the mix varies "
+        "together and is not separable). Gender, preferred and household-discount are "
+        "independent marginals applied on top. The whole grid and each marginal should "
+        "sum to 1; a cell's weight is grid[plan, age, uw] × gender × preferred × hhd "
+        "(re-normalised at run time)."
+    )
+    ages = sorted(d.by_issue_age)
+    uws = list(d.uw)
+    grand = _edit_joint_grid(d.joint, ages, uws, "dist_grid")
+    st.caption(f"**Grid total across all plans: {grand:.4f}** (should be ~1.0)")
+    _edit_marginals(d, "w")
+
+    st.subheader("Special Enrollment Period (SEP) states")
+    st.caption("Mark each state Yes/No. SEP states have a different UW mix (skew to "
+               "open-enrolment); the experience study blends each state's distribution "
+               "toward the average of its like type.")
     all_states = [s for s in available_states() if s != "All"]
     sep = set(d.sep_rule_states or [])
     sdf = pd.DataFrame({"sep_rule": [s in sep for s in all_states]}, index=all_states)
     sed = st.data_editor(
         sdf, use_container_width=True, height=320, key="dist_sep_rule",
-        column_config={"sep_rule": st.column_config.CheckboxColumn("Separate rule?")})
+        column_config={"sep_rule": st.column_config.CheckboxColumn("SEP state?")})
     d.sep_rule_states = [s for s in all_states if bool(sed["sep_rule"].get(s, False))]
+
+    st.subheader("Per-state distribution overrides")
+    st.caption("States with an override price from their own grid (GI/OE/UW & plan mix vary "
+               "by state); states without one use the national grid above. Overrides are "
+               "populated by adopting sales experience, or initialise one from national here.")
+    state = st.selectbox("State", all_states, key="dist_state_pick")
+    has = state in d.by_state and d.by_state[state].get("joint")
+    if not has:
+        st.info(f"{state} has no override — it uses the national grid.")
+        if st.button(f"Initialize {state} from national", key="dist_state_init"):
+            import copy as _copy
+            d.by_state[state] = {
+                "joint": _copy.deepcopy(d.joint), "gender": dict(d.gender),
+                "preferred": dict(d.preferred), "hhd": dict(d.hhd)}
+            st.rerun()
+    else:
+        sd = d.by_state[state]
+        sd.setdefault("joint", {})
+        for dim, src in (("gender", d.gender), ("preferred", d.preferred), ("hhd", d.hhd)):
+            sd.setdefault(dim, dict(src))
+        sg = _edit_joint_grid(sd["joint"], ages, uws, f"dist_state_grid_{state}")
+        st.caption(f"**{state} grid total: {sg:.4f}** (should be ~1.0)")
+        _edit_marginals(sd, f"dist_state_marg_{state}")
+        if st.button(f"Remove {state} override (revert to national)", key="dist_state_del"):
+            d.by_state.pop(state, None)
+            st.rerun()
 
 
 def _termination(asm) -> None:

@@ -150,7 +150,7 @@ class DistributionAssumptions:
     # mix vary by state); otherwise the national grid above is used. Empty by default
     # so the national book is unchanged.
     by_state: dict = field(default_factory=dict)
-    # states on a separate community-rating rule (different UW mix). Editable per-state
+    # states with a Special Enrollment Period (SEP) rule (different UW mix). Editable per-state
     # input; the experience study blends each state's grid toward its like-type average.
     sep_rule_states: list = field(default_factory=list)
 

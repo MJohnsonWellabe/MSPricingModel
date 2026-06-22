@@ -228,14 +228,16 @@ def solve_with_precompute(P, asm: AssumptionSet, sens, tol: float = 1e-3,
 
 
 def project_aggregate(P, asm: AssumptionSet, sens, rates,
-                      formulas: Optional[FormulaSet] = None) -> tuple[float, float]:
+                      formulas: Optional[FormulaSet] = None, return_series: bool = False):
     """Fast numpy aggregate projection of a given rerate vector → (irr, lifetime_lr).
 
     Evaluates the full formula set over the cell arrays and aggregates the
     distributable cashflow; used by the stochastic sensitivity loop to avoid the
     per-cell Python projection. Rerate effectiveness is applied (as the projection
-    does)."""
+    does). With ``return_series=True`` also returns the weight-aggregated dollar
+    series dict (income-statement lines by duration) → (irr, lifetime_lr, series)."""
     from .metrics import irr as _irr
+    from .project import _SERIES_FROM_NS
 
     n = P["n"]
     w = P["weight"]
@@ -253,6 +255,13 @@ def project_aggregate(P, asm: AssumptionSet, sens, rates,
         "covariance": asm.other.covariance,
     }
 
+    # income-statement lines to aggregate when return_series is requested
+    _LINES = ("lives", "earned_prem", "ibnr", "nii", "claims", "commission",
+              "premium_tax", "oper_acq", "marketing", "maintenance", "pretax_income",
+              "tax", "at_income", "rbc", "int_on_rbc", "tax_on_int", "ah_cashflow")
+    series = {k: [0.0] * n for k in _LINES} if return_series else None
+    wsum = float(np.sum(w))
+
     nc = len(w)
     carry = _init_carry(nc, full=True)
     cum_c = cum_p = 0.0
@@ -264,9 +273,17 @@ def project_aggregate(P, asm: AssumptionSet, sens, rates,
         cum_p += float(np.dot(w, ns["earned_prem"]))
         cum_c += float(np.dot(w, ns["claims"]))
         ah[i] = float(np.dot(w, ns["ah"]))
+        if series is not None:
+            for k in _LINES:
+                val = ns[_SERIES_FROM_NS[k]]
+                # some lines (flat acquisition amounts) are scalars broadcast across cells
+                series[k][i] = (float(np.dot(w, val)) if np.ndim(val)
+                                else float(val) * wsum)
         carry = {"lives_prev": ns["lives_d"], "G_prev": ns["G_d"], "H_prev": ns["H_d"],
                  "O_prev": ns["O_d"], "P_prev": ns["P_d"],
                  "ibnr_prev": ns["ibnr"], "rbc_prev": ns["rbc"]}
 
     lifetime = cum_c / cum_p if cum_p else 0.0
+    if return_series:
+        return _irr(ah), lifetime, series
     return _irr(ah), lifetime

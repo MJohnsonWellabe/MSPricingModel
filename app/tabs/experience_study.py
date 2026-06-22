@@ -93,9 +93,9 @@ def _sales_section() -> None:
     if d.by_state:
         sep = set(d.sep_rule_states or [])
         st.markdown("**UW mix by state** (GI / OE / UW share) — blended toward the "
-                    "like-type (separate-rule vs regular) average by sales volume")
+                    "like-type (Special Enrollment Period vs regular) average by sales volume")
         st.caption("Each state's grid is its own sales mix credibility-blended toward the "
-                   "average of its type. Separate-rule states (editable on the Distribution "
+                   "average of its type. SEP (Special Enrollment Period) states (editable on the Distribution "
                    "assumptions tab) skew to open-enrolment; regular states skew underwritten. "
                    "The full state/age/plan/UW grid is the joint grid above scaled to each "
                    "state's mix.")
@@ -265,26 +265,32 @@ def _claims_section() -> None:
             "suggested": {d: round(v, 3) for d, v in sorted(m["aging_curve"].items()) if d <= 10},
         }), use_container_width=True, height=220)
 
-    st.markdown("**UW selection by duration — current vs experience vs adopted**")
-    st.caption("Experience is credibility-blended toward current pricing by exposure; thin "
-               "durations (e.g. duration 6) carry little weight and revert to pricing.")
+    st.markdown("**UW selection by issue age × duration — current vs experience vs adopted**")
+    st.caption("Selection is referenced to the OE / duration-1 claim level (OE/dur1 = 1.0, "
+               "UW < 1, GI > 1) — the same basis the engine uses (claim = base_cc × "
+               "selection). Experience is credibility-blended toward current pricing by "
+               "per-cell exposure; thin cells (e.g. duration 6) revert to pricing.")
     sel_adopt = apply_claims(get_assumptions(), m, parts=("selection",),
                              credibility_standard=cred).morbidity.selection_factors
-    adopt_map = {(r["uw"], r["duration"]): r["factor"] for r in sel_adopt
-                 if r["issue_age"] == cmorb.ages[0]}
-    cur_map_sel = {(r["uw"], r["duration"]): r["factor"] for r in cmorb.selection_factors
-                   if r["issue_age"] == cmorb.ages[0]}
-    exp_map = {(uw, d): f for (uw, d), f in m["selection"].items()}
-    exp_exp = m.get("selection_exposure", {})
-    durs = sorted({d for (_u, d) in set(exp_map) | set(cur_map_sel) | set(adopt_map)})
+    adopt_map = {(r["issue_age"], r["uw"], r["duration"]): r["factor"] for r in sel_adopt}
+    cur_map_sel = {(r["issue_age"], r["uw"], r["duration"]): r["factor"]
+                   for r in cmorb.selection_factors}
+    exp_map = {(r["issue_age"], r["uw"], r["duration"]): r["factor"] for r in m["selection_rows"]}
+    exp_ly = {(r["issue_age"], r["uw"], r["duration"]): r["exposure"] for r in m["selection_rows"]}
+    sel_uw = st.radio("UW class", ["UW", "OE", "GI"], horizontal=True, key="claims_sel_uw")
+    ages = cmorb.ages
+    durs = sorted({d for (_a, _u, d) in set(exp_map) | set(cur_map_sel) | set(adopt_map)})
     seltbl = {}
-    for uw in ("UW", "OE", "GI"):
+    for a in ages:
+        row = {}
         for d in durs:
-            seltbl.setdefault(d, {})[f"{uw} cur"] = round(cur_map_sel.get((uw, d), float("nan")), 3)
-            seltbl[d][f"{uw} exp"] = round(exp_map.get((uw, d), float("nan")), 3)
-            seltbl[d][f"{uw} adopt"] = round(adopt_map.get((uw, d), float("nan")), 3)
-            seltbl[d][f"{uw} ly"] = round(exp_exp.get((uw, d), 0.0))
-    st.dataframe(pd.DataFrame(seltbl).T.sort_index(), use_container_width=True, height=240)
+            k = (a, sel_uw, d)
+            row[f"d{d} cur"] = round(cur_map_sel.get(k, float("nan")), 3)
+            row[f"d{d} exp"] = round(exp_map.get(k, float("nan")), 3)
+            row[f"d{d} adopt"] = round(adopt_map.get(k, float("nan")), 3)
+            row[f"d{d} ly"] = round(exp_ly.get(k, 0.0))
+        seltbl[a] = row
+    st.dataframe(pd.DataFrame(seltbl).T, use_container_width=True, height=260)
 
     st.caption("Adopt each piece separately, or all at once. Base cost is credibility-"
                "blended toward current pricing; aging is isolated and forced monotone ≥1. "

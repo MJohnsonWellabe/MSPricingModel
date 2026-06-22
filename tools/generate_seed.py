@@ -278,7 +278,7 @@ def build_cell_premiums(cells: list) -> dict:
     return out
 
 
-# states that use a separate community-rating rule (different UW mix); editable later
+# states with a Special Enrollment Period (SEP) rule (different UW mix); editable later
 SEP_RULE_STATES = ["IN", "VA", "MO", "WA", "CA", "MD", "KY", "DE"]
 
 

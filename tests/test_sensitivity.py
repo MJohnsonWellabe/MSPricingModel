@@ -47,3 +47,31 @@ def test_zero_std_gives_constant_irr(asm, cells):
     out = run_stochastic(cells, asm, ["TX"], specs, n_sims=5, seed=1)
     irrs = out["TX"]["irrs"]
     assert max(irrs) - min(irrs) < 1e-9   # no randomness -> identical
+
+
+def test_project_aggregate_series_matches_deterministic(asm, cells, base_sens):
+    from medigap_engine.engine.project import project_cell
+    cells = normalize_weights(cells)
+    P = precompute(cells, asm, "TX")
+    vec, _ = solve_with_precompute(P, asm, base_sens)
+    irr_np, lr_np, series = project_aggregate(P, asm, base_sens, vec, return_series=True)
+    agg = aggregate_cells("TX", [project_cell(c, asm, base_sens, "TX", vec) for c in cells], asm)
+    # the aggregated income-statement lines match the per-cell deterministic aggregate
+    for k in ("earned_prem", "claims", "pretax_income", "ah_cashflow", "oper_acq"):
+        for a, b in zip(series[k], agg.series[k]):
+            assert abs(a - b) < 1e-6
+
+
+def test_pooled_portfolio_irr_matches_deterministic_combined(asm, cells):
+    from medigap_engine.engine.run import RunConfig, run
+    from medigap_engine.engine.sensitivity import simulate_portfolio
+    states = ["TX", "CA", "DE"]
+    res, _ = run(cells, asm, RunConfig(states=states))
+    specs = {f: (1.0, 0.0) for f in
+             ("morbidity_scale", "termination_scale", "rerate_effectiveness",
+              "antiselective_lapse", "antiselective_claims")}
+    out = simulate_portfolio(normalize_weights(cells), asm, states, specs, 2, (5.0, 95.0),
+                             np.random.default_rng(0))
+    # at the point estimate the pooled distribution collapses to the deterministic combined IRR
+    assert abs(out["irr_mean"] - res.all_states.irr) < 1e-6
+    assert len(out["pti_mean"]) == len(res.all_states.series["pretax_income"])

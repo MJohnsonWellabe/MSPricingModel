@@ -73,6 +73,7 @@ class StateResult:
     npv_premium: float
     rerates: list[float] = field(default_factory=list)   # rerate % used by duration
     cells: list[CellResult] = field(default_factory=list)
+    npv_by_line: dict = field(default_factory=dict)       # income-statement line -> NPV
 
     @property
     def pretax_margin(self) -> float:

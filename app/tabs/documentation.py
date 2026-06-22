@@ -89,13 +89,17 @@ view.
   **credibility-blended** toward current pricing, `Z = min(1, √(exposure/standard))` with
   a full-credibility standard you set; bands with no experience keep the pricing value.
   **Aging** is isolated and forced monotone ≥ 1. The tab shows **current vs suggested**.
+- **base_cc** is the **duration-1, OE-class** claim level by issue age (it is applied
+  constant across duration in the engine; the durational/UW pattern lives in selection ×
+  aging). **Selection** is referenced to that OE / duration-1 level (OE/dur1 = 1.0, UW < 1,
+  GI > 1) — the same basis the engine uses — and shown by issue age × duration, current vs
+  experience vs adopted, credibility-blended toward pricing (thin cells revert).
 - **Aging** is estimated from how claims rise with **attained age** (the data here has
   only ~6 policy durations, so the duration signal is unreliable); the curve is smoothed
-  (isotonic) and monotone ≥ 1. **Selection** is credibility-blended toward current pricing
-  and shown current vs experience vs adopted across all durations (thin durations revert).
+  (isotonic) and monotone ≥ 1.
   Adopting **premiums** also writes per-cell premiums from the sales averages so it moves
   priced premium. **Distribution** is per-state, blended toward the average of like-type
-  states — **separate-rule** states (editable Yes/No on the Distribution tab) skew to
+  states — **Special Enrollment Period (SEP)** states (editable Yes/No on the Distribution tab) skew to
   open-enrolment; regular states skew underwritten.
 - **AE analysis** compares actual claims to expected (best-estimate assumptions,
   excluding the pricing antiselection load) at selectable granularity.
@@ -117,10 +121,17 @@ view.
 
 ### Sensitivity (stochastic)
 The Sensitivity tab draws the five sensitivity factors from Normal(mean, std) each
-simulation, re-solves rerates to the same lifetime-LR target, and projects an IRR.
-It reports per-state IRR mean/median/confidence-interval and the share of sims that
-reached the target, plus an IRR histogram. The per-state precompute is reused across
-sims (numpy) so hundreds of simulations run in seconds.
+simulation, re-solves rerates to the same lifetime-LR target, and projects. It reports
+IRR mean/median/confidence-interval, the share of sims that reached the target, an IRR
+histogram, and the **pre-tax-income range by year** (P-lo / expected / P-hi). Two modes:
+- **Per state** — each state's own IRR distribution (equal book per state).
+- **Portfolio (pooled per-state)** — each draw prices every state with its own factors and
+  **pools the cashflows** into one IRR, so the distribution centres on the deterministic
+  combined-book run. (The 'National (All)' single projection reads higher because it ignores
+  the per-state morbidity/premium/commission loadings — the per-state pool is the true book.)
+
+Drilling into a result re-projects a chosen scenario (P5 / median / P95 IRR draw) to its
+**full income statement**. The per-state precompute is reused across sims (numpy).
 
 ### Experience study coverage
 Sales data → distribution weights and the premium factor model. Claims data → base

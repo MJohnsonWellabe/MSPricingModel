@@ -229,9 +229,24 @@ premiums** (edit one state at a time; a Clear button reverts to the factor model
   durations, so the duration signal is unreliable): isolate cc by attained age, smooth with weighted
   isotonic regression (`claims._isotonic`), and walk it out from the exposure-weighted reference issue
   age into a monotone ≥1 duration curve.
-- **Selection** is **credibility-blended toward current pricing** per `(issue_age, uw, duration)` using
-  per-cell exposure; thin cells (e.g. duration 6) revert to pricing. The tab shows current vs experience
-  vs adopted across all durations.
+- **base_cc** (`claims.derive_morbidity`) is the **duration-1, OE-class** claim level by issue age — it
+  is applied constant across duration in the engine, so the base is the first-year OE level; the
+  durational/UW pattern lives in selection × aging. **Selection** is referenced to that OE/dur1 level
+  (`selection = cc(issue_age,uw,dur) / oe_dur1_ref(issue_age)`; OE/dur1 = 1.0, UW < 1, GI > 1), matching
+  the engine `claim = base_cc × selection`. It is **credibility-blended toward current pricing** per
+  `(issue_age, uw, duration)` by per-cell exposure (thin cells, e.g. duration 6, revert to pricing); the
+  tab shows current vs experience vs adopted by issue age × duration. Both are editable on the Morbidity
+  assumptions tab (selection-factor grid) and the Distribution tab (per-state grid override).
+- **Output / source-of-margin:** `aggregate._finalise` computes `npv_by_line` (NPV of every
+  income-statement line); the Output by-state summary/CSV shows first-year (duration-1) premium/claims/LR,
+  the duration-1 **experience** LR per state (from loaded claims), lifetime LR, and **NPV line ÷ NPV
+  premium** percentages (premium 100% + NII − claims − expenses = pre-tax %).
+- **Sensitivity:** `project_aggregate(..., return_series=True)` returns the aggregated income-statement
+  series; `simulate_state`/`simulate_portfolio` retain per-draw pre-tax income (P5/expected/P95 by year)
+  and factor vectors, and `project_scenario` re-projects a chosen draw to a full income statement. The
+  **pooled-portfolio mode** prices every state with its own factors per draw and pools the cashflows, so
+  its IRR distribution **centres on the deterministic combined run** — the per-state "National (All)"
+  single projection reads higher because it ignores the per-state morbidity/premium/commission loadings.
 - **Adopt premiums also writes `cell_premiums` from the sales averages** (the per-cell table dominates
   pricing), so adopting actually moves priced premiums; covered cells only, others keep their premium.
 - **Multi-state tables**: `tools/generate_seed.py` merges `tools/multistate_reference.json` (28-state

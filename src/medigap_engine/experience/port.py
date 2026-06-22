@@ -81,7 +81,7 @@ def apply_sales(asm: AssumptionSet, sales: dict, parts=("distribution", "premium
     """Return a copy of ``asm`` with distribution weight factors and/or the premium
     factor model recalibrated from the sales aggregation. ``parts`` selects which
     blocks to adopt. Per-state grids are credibility-blended toward the average of
-    their like-type (separate-rule vs regular) states."""
+    their like-type (Special Enrollment Period vs regular) states."""
     new = copy.deepcopy(asm)
     parts = set(parts)
     counts = sales["counts"]            # cell-key tuple -> total applications
@@ -103,7 +103,7 @@ def apply_sales(asm: AssumptionSet, sales: dict, parts=("distribution", "premium
             for s, c in per_state.items():
                 by_state_counts[s][k] = c
                 state_total[s] += c
-        # group states into separate-rule vs regular and form each group's average grid
+        # group states into SEP (Special Enrollment Period) vs regular and form each group's average grid
         sep = set(new.distribution.sep_rule_states or [])
         group_counts = {"sep": defaultdict(float), "reg": defaultdict(float)}
         for s, ck in by_state_counts.items():

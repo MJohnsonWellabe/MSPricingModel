@@ -28,6 +28,33 @@ _INCOME_ROWS = [
 ]
 
 
+def _experience_dur1_lr():
+    """Per-state duration-1 actual loss ratio (Σ adj_claims / Σ earned for duration 1) from
+    the loaded claims experience, plus an "__all__" book figure. None if no experience."""
+    records = st.session_state.get("claims_records")
+    if not records:
+        return None
+    acc: dict = {}
+    tot_c = tot_e = 0.0
+    for r in records:
+        try:
+            if int(float(r.get("duration", 0))) != 1:
+                continue
+            c = float(r.get("adj_claims", 0.0) or 0.0)
+            e = float(r.get("earned", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        s = str(r.get("state", "")).strip().upper()
+        a = acc.setdefault(s, [0.0, 0.0])
+        a[0] += c
+        a[1] += e
+        tot_c += c
+        tot_e += e
+    out = {s: (cc / ee if ee else float("nan")) for s, (cc, ee) in acc.items()}
+    out["__all__"] = tot_c / tot_e if tot_e else float("nan")
+    return out
+
+
 def render() -> None:
     st.header("Output")
     result = st.session_state.get("run_result")
@@ -37,21 +64,48 @@ def render() -> None:
 
     st.subheader("Summary by state")
 
+    # duration-1 experience loss ratio per state from the loaded claims experience
+    exp_lr = _experience_dur1_lr()
+
+    # income-statement lines shown as NPV ÷ NPV premium (a source-of-margin walk)
+    _MARGIN_LINES = [
+        ("nii", "NII %"), ("claims", "Claims %"), ("commission", "Commission %"),
+        ("premium_tax", "Premium tax %"), ("oper_acq", "Oper acq %"),
+        ("marketing", "Marketing %"), ("maintenance", "Maintenance %"),
+        ("pretax_income", "Pre-tax %"),
+    ]
+
     def _row(name, r):
-        return {
+        prem1 = r.series["earned_prem"][0]
+        clm1 = r.series["claims"][0]
+        row = {
             "State": name,
-            "Lifetime LR": round(r.lifetime_lr, 4),
-            "Pretax margin": round(r.pretax_margin, 4),
-            "IRR": round(r.irr, 4),
-            "NPV pre-tax income": round(r.npv_pretax, 2),
-            "NPV premium": round(r.npv_premium, 2),
+            "FY premium": round(prem1, 2),
+            "FY claims": round(clm1, 2),
+            "FY LR": round(clm1 / prem1, 4) if prem1 else 0.0,
         }
+        if exp_lr is not None:
+            row["Exp LR (d1)"] = round(exp_lr.get(name, exp_lr.get("__all__", float("nan"))), 4)
+        row["Lifetime LR"] = round(r.lifetime_lr, 4)
+        row["Pretax margin"] = round(r.pretax_margin, 4)
+        row["IRR"] = round(r.irr, 4)
+        row["NPV pre-tax income"] = round(r.npv_pretax, 2)
+        row["NPV premium"] = round(r.npv_premium, 2)
+        denom = r.npv_premium or 0.0
+        for key, label in _MARGIN_LINES:
+            v = r.npv_by_line.get(key) if r.npv_by_line else None
+            row[label] = round(v / denom, 4) if (v is not None and denom) else 0.0
+        return row
 
     rows = [_row(state, r) for state, r in result.by_state.items()]
     if result.all_states and len(result.by_state) > 1:
         rows.append(_row("Combined", result.all_states))
     summary = pd.DataFrame(rows)
     st.dataframe(summary, hide_index=True, use_container_width=True)
+    st.caption("FY = first projection year (duration 1). The trailing **%** columns are the "
+               "NPV of each income-statement line ÷ NPV of premium — a source-of-margin walk "
+               "(premium 100% + NII − claims − expenses = pre-tax %). Exp LR (d1) is the "
+               "duration-1 actual loss ratio from the loaded claims experience, if any.")
     st.download_button("Download summary (CSV)", summary.to_csv(index=False),
                        "summary.csv", "text/csv", key="out_download")
 
