@@ -64,6 +64,7 @@ def derive_morbidity(rows) -> dict:
         return {"claims": 0.0, "exp": 0.0}
 
     by_plan_age_d1: dict = {}
+    by_state_cell_d1: dict = {}      # (state,plan,issue_age,gender,uw) dur-1 -> isolated state factor
     by_plan_issue: dict = {}         # (plan, issue age) -> cc (all durations), diagnostics
     by_state: dict = {}
     by_gender: dict = {}
@@ -98,6 +99,10 @@ def derive_morbidity(rows) -> dict:
             cell = by_plan_age_d1.setdefault(r["plan"], {}).setdefault(r["issue_age"], acc())
             cell["claims"] += cl
             cell["exp"] += exp
+            sk = (r["state"], r["plan"], r["issue_age"], r["gender"], r["uw_class"])
+            c4 = by_state_cell_d1.setdefault(sk, acc())
+            c4["claims"] += cl
+            c4["exp"] += exp
 
     overall = _cc(total["claims"], total["exp"])
     dur1_cc = {p: {a: _cc(v["claims"], v["exp"]) for a, v in ages.items()}
@@ -119,8 +124,22 @@ def derive_morbidity(rows) -> dict:
     g_cc = {g: _cc(v["claims"], v["exp"]) for g, v in by_gender.items()}
     gender_diff = (g_cc["M"] / g_cc["F"] - 1.0) if g_cc.get("F") else 0.0
 
-    state_factors = {s: (_cc(v["claims"], v["exp"]) / overall if overall else 1.0)
-                     for s, v in by_state.items()}
+    # state morbidity factor: ISOLATED (mix-free) DURATION-1 relativity via a multivariate
+    # fit over (state, plan, issue_age, gender, uw). base_cc is the national duration-1 blend
+    # and each state's own age/UW/plan mix is already applied through the distribution grid,
+    # so the state factor must be the pure state effect (holding the cell fixed), not the
+    # raw state/national average — which is confounded by the state's mix and would
+    # double-count it (e.g. a state skewed to young/UW cells looks cheap on average but runs
+    # above national cell-for-cell). Normalised to an exposure-weighted mean of 1.0.
+    sobs = [(k, _cc(v["claims"], v["exp"]), v["exp"])
+            for k, v in by_state_cell_d1.items() if v["exp"] > 0]
+    sfit = fit_main_effects(sobs, n_dims=5)["factors"][0] if sobs else {}
+    sexp: dict = {}
+    for (st, _p, _a, _g, _u), v in by_state_cell_d1.items():
+        sexp[st] = sexp.get(st, 0.0) + v["exp"]
+    wmean = (sum(sfit.get(s, 1.0) * e for s, e in sexp.items()) / sum(sexp.values())
+             if sexp else 1.0) or 1.0
+    state_factors = {s: round(sfit.get(s, 1.0) / wmean, 6) for s in sexp}
 
     # selection is referenced to the ALL-UW / duration-1 blended claim level by issue age, so
     # the UW-mix-weighted selection ≈ 1.0 at duration 1 (OE ramps up with issue age as it
