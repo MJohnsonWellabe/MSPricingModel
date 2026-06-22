@@ -76,8 +76,13 @@ def render() -> None:
     ]
 
     def _row(name, r):
-        prem1 = r.series["earned_prem"][0]
-        clm1 = r.series["claims"][0]
+        # FY premium/claims as PMPY (per member per year): the engine computes both as
+        # rate x avg_lives, so dividing by year-1 member-years recovers the per-policy-year
+        # rate that lines up with a Σclaims/Σcnt pull from the data. avg_lives[0] =
+        # (lives_prev + lives_d)/2 and lives_prev is 1.0 at issue (book starts at weight 1).
+        exposure1 = (1.0 + r.series["lives"][0]) / 2.0
+        prem1 = r.series["earned_prem"][0] / exposure1 if exposure1 else 0.0
+        clm1 = r.series["claims"][0] / exposure1 if exposure1 else 0.0
         row = {
             "State": name,
             "FY premium": round(prem1, 2),
@@ -102,10 +107,13 @@ def render() -> None:
         rows.append(_row("Combined", result.all_states))
     summary = pd.DataFrame(rows)
     st.dataframe(summary, hide_index=True, use_container_width=True)
-    st.caption("FY = first projection year (duration 1). The trailing **%** columns are the "
-               "NPV of each income-statement line ÷ NPV of premium — a source-of-margin walk "
-               "(premium 100% + NII − claims − expenses = pre-tax %). Exp LR (d1) is the "
-               "duration-1 actual loss ratio from the loaded claims experience, if any.")
+    st.caption("FY = first projection year (duration 1); **FY premium and FY claims are "
+               "PMPY** (per member per year — divided by first-year member-years), so they "
+               "compare like-for-like with a Σclaims/Σcnt pull from the data. The trailing "
+               "**%** columns are the NPV of each income-statement line ÷ NPV of premium — a "
+               "source-of-margin walk (premium 100% + NII − claims − expenses = pre-tax %). "
+               "Exp LR (d1) is the duration-1 actual loss ratio from the loaded claims "
+               "experience, if any.")
     st.download_button("Download summary (CSV)", summary.to_csv(index=False),
                        "summary.csv", "text/csv", key="out_download")
 
