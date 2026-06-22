@@ -56,19 +56,19 @@ def test_explicit_exposure_column_overrides_cnt():
     assert abs(m["dur1_cc"]["G"][65] - 2000.0) < 1e-6           # 8000 / 4 life-years
 
 
-def test_base_cc_is_duration1_oe_reference():
-    # base_cc is the OE-class, DURATION-1 level by issue age (applied constant across
-    # duration in the engine; the durational/UW pattern lives in selection). An OE/dur1
-    # row sets the base; a UW/dur3 row at the same age is reflected in selection, not base.
+def test_base_cc_is_alluw_duration1_blend():
+    # base_cc is the ALL-UW, DURATION-1 blended claim cost by issue age (applied constant
+    # across duration in the engine; the durational/UW pattern lives in selection). The
+    # duration-1 selection level is each UW class relative to that blend (mix-weighted ~1.0).
     rows = [
-        _row("All", "G", 65, "M", "OE", 1, 100, 100_000.0),  # OE/dur1 -> cc 1000 base
-        _row("All", "G", 65, "M", "UW", 3, 50, 30_000.0),    # UW/dur3 -> cc 600 -> sel 0.6
+        _row("All", "G", 65, "M", "OE", 1, 100, 100_000.0),  # OE/dur1 -> cc 1000
+        _row("All", "G", 65, "M", "UW", 1, 100, 60_000.0),   # UW/dur1 -> cc 600
     ]
     m = derive_morbidity(rows)
-    assert abs(m["base_cc_by_issue_age"]["G"][65] - 1000.0) < 1e-6
+    assert abs(m["base_cc_by_issue_age"]["G"][65] - 800.0) < 1e-6   # all-UW dur1 blend
     sr = {(r["issue_age"], r["uw"], r["duration"]): r["factor"] for r in m["selection_rows"]}
-    assert abs(sr[(65, "OE", 1)] - 1.0) < 1e-6       # OE/dur1 = reference
-    assert abs(sr[(65, "UW", 3)] - 0.6) < 1e-6       # 600 / 1000 OE-ref
+    assert abs(sr[(65, "OE", 1)] - 1.25) < 1e-6      # 1000 / 800
+    assert abs(sr[(65, "UW", 1)] - 0.75) < 1e-6      # 600 / 800
 
 
 def test_claims_sample_loads():

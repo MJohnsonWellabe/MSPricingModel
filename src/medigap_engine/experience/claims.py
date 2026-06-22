@@ -12,6 +12,8 @@ by ``normalize_claims``), matching how the engine indexes base claim cost.
 """
 from __future__ import annotations
 
+import math
+
 from .decomp import differential, fit_main_effects
 from .schema import normalize_claims
 
@@ -141,9 +143,36 @@ def derive_morbidity(rows) -> dict:
              if sexp else 1.0) or 1.0
     state_factors = {s: round(sfit.get(s, 1.0) / wmean, 6) for s in sexp}
 
-    # selection is referenced to the ALL-UW / duration-1 blended claim level by issue age, so
-    # the UW-mix-weighted selection ≈ 1.0 at duration 1 (OE ramps up with issue age as it
-    # antiselects, UW < 1, GI > 1) — matching the engine: claim = base_cc(issue_age) × selection.
+    # ATTAINED-AGE aging slope: exposure-weighted log-linear fit of ln(cc) on attained age
+    # over (attained_age, gender, plan, uw). A single robust morbidity %/yr — used for the
+    # aging curve AND to net aging out of the selection wear-off so they don't double-count.
+    # (Walking a noisy attained-age curve out from one reference age previously caught a local
+    # +11% blip; the slope here is ~1-2%/yr.)
+    att_cc: dict = {}
+    for (att, _g, _p, _u), v in by_cell_attained.items():
+        c = att_cc.setdefault(att, {"claims": 0.0, "exp": 0.0})
+        c["claims"] += v["claims"]
+        c["exp"] += v["exp"]
+    pts = [(a, math.log(c["claims"] / c["exp"]), c["exp"])
+           for a, c in att_cc.items() if c["exp"] > 0 and c["claims"] > 0]
+    aging_rate = 0.0
+    if len(pts) >= 2:
+        sw = sum(w for _a, _y, w in pts) or 1.0
+        mx = sum(w * a for a, _y, w in pts) / sw
+        my = sum(w * y for _a, y, w in pts) / sw
+        sxx = sum(w * (a - mx) ** 2 for a, _y, w in pts)
+        sxy = sum(w * (a - mx) * (y - my) for a, y, w in pts)
+        if sxx > 0:
+            aging_rate = max(0.0, math.exp(sxy / sxx) - 1.0)
+    ref_issue = (round(sum(a * e for a, e in issue_exp.items()) / sum(issue_exp.values()))
+                 if issue_exp else 65)
+
+    # selection LEVEL at duration 1 by (issue_age, uw), referenced to the all-UW/dur1 blend
+    # (decent exposure: OE ramps up with issue age as it antiselects, UW < 1, GI > 1). The
+    # DURATION wear-off comes from the well-populated (uw, duration) aggregation, net of the
+    # aging slope so it isn't double-counted with the engine's aging (P_d). Estimating the
+    # wear-off per (issue_age, uw, duration) cell was too thin and injected noise (UW jumping
+    # 0.54->0.94). claim = base_cc(issue_age) × selection.
     allcell_d1 = {a: _cc(sum(by_plan_age_d1[p][a]["claims"] for p in by_plan_age_d1 if a in by_plan_age_d1[p]),
                          sum(by_plan_age_d1[p][a]["exp"] for p in by_plan_age_d1 if a in by_plan_age_d1[p]))
                   for a in {a for p in by_plan_age_d1 for a in by_plan_age_d1[p]}}
@@ -152,24 +181,38 @@ def derive_morbidity(rows) -> dict:
         return allcell_d1.get(age) or 0.0
 
     dur_cc = {d: _cc(v["claims"], v["exp"]) for d, v in by_dur.items()}
-    selection = {}            # (uw, duration) -> factor on the all-UW/dur1 reference (book-wide)
-    selection_exposure = {}
     uwdur_cc = {(uw, d): _cc(v["claims"], v["exp"]) for (uw, d), v in by_uw_dur.items()}
-    # exposure-weighted all-UW/dur1 reference across ages for the book-wide (uw, dur) view
-    d1_tot = sum(by_plan_age_d1[p][a]["claims"] for p in by_plan_age_d1 for a in by_plan_age_d1[p])
-    d1_exp = sum(by_plan_age_d1[p][a]["exp"] for p in by_plan_age_d1 for a in by_plan_age_d1[p])
-    ref_book = (d1_tot / d1_exp) if d1_exp else (dur_cc.get(1, 0.0) or 1.0)
-    for (uw, d), v in by_uw_dur.items():
-        selection[(uw, d)] = (uwdur_cc[(uw, d)] / ref_book) if ref_book else 1.0
-        selection_exposure[(uw, d)] = v["exp"]
-
-    # selection by (issue_age, uw, duration) on the all-UW/dur1 reference; carry exposure
-    selection_rows = []
+    durs = sorted({d for (_uw, d) in by_uw_dur})
+    uws = {u for (u, _d) in by_uw_dur}
+    # duration wear-off per UW class, net of the aging slope (so dur-1 = 1.0)
+    wear = {}
+    for uw in uws:
+        c1 = uwdur_cc.get((uw, 1), 0.0)
+        for d in durs:
+            cd = uwdur_cc.get((uw, d), 0.0)
+            wear[(uw, d)] = (cd / c1 / (1.0 + aging_rate) ** (d - 1)) if c1 else 1.0
+    # duration-1 selection level by (issue_age, uw)
+    sel_d1 = {}
     for (age, uw, d), v in by_age_uw_dur.items():
-        base = _ref(age)
-        factor = (_cc(v["claims"], v["exp"]) / base) if base else 1.0
-        selection_rows.append({"issue_age": age, "uw": uw, "duration": d,
-                               "factor": round(factor, 6), "exposure": round(v["exp"], 2)})
+        if d == 1:
+            base = _ref(age)
+            sel_d1[(age, uw)] = (_cc(v["claims"], v["exp"]) / base) if base else 1.0
+    # book-wide (uw, duration) view = book dur-1 level × wear-off
+    selection = {}
+    selection_exposure = {}
+    for (uw, d), v in by_uw_dur.items():
+        lvl = (uwdur_cc.get((uw, 1), 0.0) / dur_cc.get(1, 1.0)) if dur_cc.get(1) else 1.0
+        selection[(uw, d)] = lvl * wear.get((uw, d), 1.0)
+        selection_exposure[(uw, d)] = v["exp"]
+    # full grid = duration-1 level (by issue_age, uw) × duration wear-off (by uw); carry the
+    # (uw, duration) exposure for the credibility blend on adopt
+    selection_rows = []
+    for (age, uw) in sel_d1:
+        for d in durs:
+            factor = sel_d1[(age, uw)] * wear.get((uw, d), 1.0)
+            selection_rows.append({"issue_age": age, "uw": uw, "duration": d,
+                                   "factor": round(factor, 6),
+                                   "exposure": round(by_uw_dur.get((uw, d), {"exp": 0.0})["exp"], 2)})
 
     cc1 = dur_cc.get(1, 0.0)
     aging_by_duration = {d: (cc / cc1 if cc1 else 1.0) for d, cc in dur_cc.items()}
@@ -179,33 +222,11 @@ def derive_morbidity(rows) -> dict:
             if v["exp"] > 0]
     gender_diff_isolated = differential(fit_main_effects(fobs, n_dims=5)["factors"], 1, "M", "F")
 
-    # AGING from the ATTAINED-AGE progression (claims rise with age), isolated over
-    # (attained_age, gender, plan, uw). The duration signal is unreliable here (the data
-    # only has ~6 policy durations). The attained-age claim-cost factors are smoothed to a
-    # monotone curve (weighted isotonic / PAVA) and walked out from a reference
-    # (exposure-weighted) issue age, so the aging curve is monotone >= 1.
-    aobs = [(k, _cc(v["claims"], v["exp"]), v["exp"]) for k, v in by_cell_attained.items()
-            if v["exp"] > 0]
-    afac = fit_main_effects(aobs, n_dims=4)["factors"][0]   # attained-age factor
-    att_exp: dict = {}
-    for (att, _g, _p, _u), v in by_cell_attained.items():
-        att_exp[att] = att_exp.get(att, 0.0) + v["exp"]
-    ref_issue = (round(sum(a * e for a, e in issue_exp.items()) / sum(issue_exp.values()))
-                 if issue_exp else 65)
-    aging_curve: dict = {}
-    if afac:
-        ages = sorted(afac)
-        smooth = dict(zip(ages, _isotonic([afac[a] for a in ages],
-                                          [att_exp.get(a, 1.0) for a in ages])))
-        amin, amax = ages[0], ages[-1]
-
-        def _f(a):
-            a = max(amin, min(a, amax))
-            return smooth.get(a) or smooth[min(smooth, key=lambda x: abs(x - a))]
-
-        base_a = _f(ref_issue) or 1.0
-        for d in range(1, 31):
-            aging_curve[d] = round(max(1.0, _f(ref_issue + d - 1) / base_a), 6)
+    # AGING curve from the constant attained-age slope (computed above): monotone
+    # (1 + aging_rate) ** (duration - 1). The engine applies it as the per-duration aging
+    # increment (cc_aging), separately from the projection trend (O_d) and the UW selection
+    # wear-off (which is already net of this slope).
+    aging_curve = {d: round((1.0 + aging_rate) ** (d - 1), 6) for d in range(1, 31)}
 
     return {
         "dur1_cc": dur1_cc,
