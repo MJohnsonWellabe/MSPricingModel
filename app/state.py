@@ -31,6 +31,8 @@ def init_state() -> None:
         st.session_state.run_result = None
     if "diagnostics" not in st.session_state:
         st.session_state.diagnostics = None
+    if "active_tab" not in st.session_state:
+        st.session_state.active_tab = "Configuration"
 
 
 def get_cells():

@@ -1,15 +1,15 @@
-"""Calculation tab: execute the run and expose inspectable engine output."""
+"""Calculation tab: solver diagnostics and inspectable engine output for the last run.
+
+The model is run from the **Run model** button on the Configuration tab (which shows the
+progress bar and jumps to Output on completion); this tab inspects what that run produced.
+"""
 from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
 
-from app.state import get_assumptions, get_cells, get_formulas
-from medigap_engine.engine.aggregate import aggregate_states
-from medigap_engine.engine.run import normalize_weights, run_state
 from medigap_engine.models.assumptions import PROJECTION_YEARS
 from medigap_engine.models.config import RunConfig
-from medigap_engine.models.results import RunResult
 from medigap_engine.models.sensitivities import SensitivitySet
 
 
@@ -18,41 +18,13 @@ def render() -> None:
 
     config: RunConfig = st.session_state.get("run_config") or RunConfig(
         states=["All"], sensitivities=SensitivitySet())
-
     st.write(f"States to run: **{', '.join(config.states)}**  |  "
              f"Solve rerates: **{config.solve_rerates}**")
+    st.caption("Run the model from the **Run model** button on the Configuration tab. "
+               "This tab shows solver diagnostics and the full projection for the last run.")
 
-    if st.button("Compute now", type="primary", key="calc_run") or st.session_state.get("run_requested"):
-        st.session_state.run_requested = False
-        st.session_state.calc_job = {
-            "states": list(config.states), "i": 0, "by_state": {}, "diag": {},
-            "config": config,
-        }
-        st.session_state.run_result = None
-        st.rerun()
-
-    # Process one state per rerun so the progress bar repaints between states
-    # (a single synchronous loop never repaints under stlite).
-    job = st.session_state.get("calc_job")
-    if job:
-        states = job["states"]
-        total = len(states)
-        i = job["i"]
-        st.progress(i / total, text=f"Pricing {states[i]} ({i + 1}/{total})…")
-        asm = get_assumptions()
-        cells = normalize_weights(get_cells())
-        st_res, info = run_state(states[i], cells, asm, job["config"], get_formulas())
-        job["by_state"][states[i]] = st_res
-        job["diag"][states[i]] = info
-        job["i"] = i + 1
-        if job["i"] < total:
-            st.rerun()
-        combined = (aggregate_states(job["by_state"], asm) if total > 1
-                    else next(iter(job["by_state"].values()), None))
-        st.session_state.run_result = RunResult(by_state=job["by_state"], all_states=combined)
-        st.session_state.diagnostics = job["diag"]
-        st.session_state.calc_job = None
-        st.success("Run complete — see the Output tab for results.")
+    if not st.session_state.get("run_result"):
+        st.info("No results yet — run the model from the Configuration tab.")
 
     diag = st.session_state.get("diagnostics")
     if diag:

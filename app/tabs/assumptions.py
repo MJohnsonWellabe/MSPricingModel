@@ -227,11 +227,37 @@ def _rerates(asm) -> None:
                                              value=int(r.consecutive_b), step=1))
 
     st.subheader("Specified rerates by duration")
-    st.caption("Durations 1–2 are always used; the rest are used when solving is off.")
+    st.info(
+        "**The duration-1 rerate applies in the first projection year** — first-year earned "
+        "premium = base premium × (1 + rerate₁). Use it to load a known upcoming rate increase "
+        "that isn't in the experience data. Durations 1–2 are always used (even when solving "
+        "is on); durations 3+ are used only when solving is off."
+    )
     rdf = pd.DataFrame({"Rerate": r.specified_rerates},
                        index=range(1, len(r.specified_rerates) + 1))
     red = st.data_editor(rdf, use_container_width=True, height=300, key="spec_rerate")
     r.specified_rerates = red["Rerate"].tolist()
+
+    st.markdown("**Per-state rerate overrides** (optional)")
+    st.caption("Pick a state and edit its schedule to override the shared one above for that "
+               "state (e.g. a known state-specific rate action). States without an override "
+               "use the shared schedule.")
+    states = [s for s in available_states() if s != "All"]
+    pc = st.columns([1, 3])
+    sel = pc[0].selectbox("State", states, key="rr_state")
+    has = sel in r.by_state
+    pc[0].caption("Override active" if has else "Using shared schedule")
+    if not has and pc[0].button("Add override (copy shared)", key="rr_add"):
+        r.by_state[sel] = list(r.specified_rerates)
+        st.rerun()
+    if has:
+        if pc[0].button("Remove override", key="rr_del"):
+            del r.by_state[sel]
+            st.rerun()
+        sdf = pd.DataFrame({"Rerate": r.by_state[sel]},
+                           index=range(1, len(r.by_state[sel]) + 1))
+        sed = pc[1].data_editor(sdf, use_container_width=True, height=300, key=f"rr_state_{sel}")
+        r.by_state[sel] = sed["Rerate"].tolist()
 
 
 def _premium(asm) -> None:

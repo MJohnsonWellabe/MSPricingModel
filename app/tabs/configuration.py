@@ -4,10 +4,41 @@ from __future__ import annotations
 
 import streamlit as st
 
-from app.state import solve_toggle
+from app.state import get_assumptions, get_cells, get_formulas, solve_toggle
+from medigap_engine.engine.aggregate import aggregate_states
+from medigap_engine.engine.run import normalize_weights, run_state
 from medigap_engine.io.defaults import available_states
 from medigap_engine.models.config import RunConfig
+from medigap_engine.models.results import RunResult
 from medigap_engine.models.sensitivities import SensitivitySet
+
+
+def _process_run_job() -> None:
+    """Advance the per-state run job by one state per Streamlit rerun, repainting the
+    progress bar between states. When the last state finishes, store the result and
+    switch the active tab to Output."""
+    job = st.session_state.get("calc_job")
+    if not job:
+        return
+    states = job["states"]
+    total = len(states)
+    i = job["i"]
+    st.progress(i / total, text=f"Pricing {states[i]} ({i + 1}/{total})…")
+    asm = get_assumptions()
+    cells = normalize_weights(get_cells())
+    st_res, info = run_state(states[i], cells, asm, job["config"], get_formulas())
+    job["by_state"][states[i]] = st_res
+    job["diag"][states[i]] = info
+    job["i"] = i + 1
+    if job["i"] < total:
+        st.rerun()
+    combined = (aggregate_states(job["by_state"], asm) if total > 1
+                else next(iter(job["by_state"].values()), None))
+    st.session_state.run_result = RunResult(by_state=job["by_state"], all_states=combined)
+    st.session_state.diagnostics = job["diag"]
+    st.session_state.calc_job = None
+    st.session_state.active_tab = "Output"
+    st.rerun()
 
 
 def render() -> None:
@@ -67,12 +98,17 @@ def render() -> None:
 
     st.divider()
     if st.button("Run model", type="primary", key="cfg_run"):
-        st.session_state.run_requested = True
-        st.success(
-            f"Configured to run {len(selected)} state(s). "
-            "Open the **Calculation** tab to execute."
-        )
-    st.caption("After clicking Run, go to the Calculation tab to compute results.")
+        st.session_state.calc_job = {
+            "states": list(selected), "i": 0, "by_state": {}, "diag": {},
+            "config": st.session_state.run_config,
+        }
+        st.session_state.run_result = None
+        st.rerun()
+    # Process one state per rerun so the progress bar repaints beneath the button
+    # (a single synchronous loop never repaints under stlite). On completion, jump to Output.
+    _process_run_job()
+    st.caption(f"Runs {len(selected)} state(s) here with a progress bar, then opens the "
+               "Output tab automatically.")
 
     st.divider()
     st.subheader("Full model export / import")

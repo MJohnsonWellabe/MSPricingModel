@@ -62,6 +62,7 @@ def assumptions_from_dict(d: dict) -> AssumptionSet:
             r.get("antiselection_lambda_claims", r.get("antiselection_lambda", 0.5))),
         antiselection_lambda_lapse=float(
             r.get("antiselection_lambda_lapse", r.get("antiselection_lambda", 0.5))),
+        by_state={str(s): [float(x) for x in v] for s, v in r.get("by_state", {}).items()},
     )
     p = d["premium"]
     premium = PremiumAssumptions(
@@ -175,6 +176,7 @@ def assumptions_to_dict(a: AssumptionSet) -> dict:
             "consecutive_z": r.consecutive_z, "consecutive_b": r.consecutive_b,
             "antiselection_lambda_claims": r.antiselection_lambda_claims,
             "antiselection_lambda_lapse": r.antiselection_lambda_lapse,
+            "by_state": r.by_state,
         },
         "distribution": {
             "joint": dist.joint, "gender": dist.gender,

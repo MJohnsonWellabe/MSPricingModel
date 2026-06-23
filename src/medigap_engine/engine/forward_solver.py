@@ -79,6 +79,7 @@ def precompute(cells, asm: AssumptionSet, state: str) -> dict:
         dur2=asm.termination.dur2_scaling, dur3=asm.termination.dur3plus_scaling,
         lam_lapse=asm.rerates.antiselection_lambda_lapse,
         lam_claims=asm.rerates.antiselection_lambda_claims,
+        spec=list(asm.rerates.rerates_for(state)),   # per-state specified rerates (durs 1-2)
     )
 
 
@@ -161,7 +162,7 @@ def solve_with_precompute(P, asm: AssumptionSet, sens, tol: float = 1e-3,
                           ) -> tuple[list[float], dict]:
     n = P["n"]
     rr = asm.rerates
-    spec = rr.specified_rerates
+    spec = P.get("spec") or rr.specified_rerates   # per-state schedule when present
     floor = rr.in_year_lr_floor
     z, b_rule = rr.consecutive_z, max(1, rr.consecutive_b)
     nc = len(P["weight"])

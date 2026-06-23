@@ -113,7 +113,10 @@ def render() -> None:
                "**%** columns are the NPV of each income-statement line ÷ NPV of premium — a "
                "source-of-margin walk (premium 100% + NII − claims − expenses = pre-tax %). "
                "Exp LR (d1) is the duration-1 actual loss ratio from the loaded claims "
-               "experience, if any.")
+               "experience, if any. **Lifetime LR is undiscounted** (Σclaims ÷ Σpremium over "
+               "30 yrs) while the **Claims % column is NPV-discounted** (NPV claims ÷ NPV "
+               "premium); with premium-heavier early years and claims that build by duration, "
+               "the discounted Claims % is below the undiscounted Lifetime LR.")
     st.download_button("Download summary (CSV)", summary.to_csv(index=False),
                        "summary.csv", "text/csv", key="out_download")
 
@@ -133,6 +136,47 @@ def render() -> None:
     # st.table keeps the income-statement row order fixed (no interactive re-sort)
     st.table(df.style.format("{:,.2f}"))
 
+    # --- PMPY and the drivers of the duration ramp ---
+    from app.state import get_assumptions
+    asm = get_assumptions()
+    tby, aby = asm.morbidity.trend_by_year, asm.morbidity.cc_aging_by_duration
+    lives = series["lives"]
+    avg_lives = [(1.0 + lives[0]) / 2.0 if i == 0 else (lives[i - 1] + lives[i]) / 2.0
+                 for i in range(PROJECTION_YEARS)]
+    claims_pmpy = [series["claims"][i] / avg_lives[i] if avg_lives[i] else 0.0
+                   for i in range(PROJECTION_YEARS)]
+    prem_pmpy = [series["earned_prem"][i] / avg_lives[i] if avg_lives[i] else 0.0
+                 for i in range(PROJECTION_YEARS)]
+    trend_cum, aging_cum, tc, ac = [], [], 1.0, 1.0
+    for i in range(PROJECTION_YEARS):
+        d = i + 1
+        if d >= 2:   # year 1 carries no projection trend / aging step
+            tc *= 1.0 + tby[min(d, len(tby)) - 1]
+            ac *= 1.0 + aby[min(d, len(aby)) - 1]
+        trend_cum.append(tc)
+        aging_cum.append(ac)
+    base = claims_pmpy[0] or 1.0
+    resid = [(claims_pmpy[i] / base) / (trend_cum[i] * aging_cum[i])
+             if trend_cum[i] * aging_cum[i] else 1.0 for i in range(PROJECTION_YEARS)]
+    st.markdown("**Claims & premium PMPY, and the drivers of the duration ramp**")
+    drv = pd.DataFrame({
+        "Claims PMPY": claims_pmpy,
+        "Premium PMPY": prem_pmpy,
+        "Trend (cum ×)": trend_cum,
+        "Aging (cum ×)": aging_cum,
+        "Selection wear-off + antisel + mix (×)": resid,
+    }).T
+    drv.columns = [f"Yr {i}" for i in range(1, PROJECTION_YEARS + 1)]
+    st.table(drv.style.format("{:,.3f}"))
+    st.caption(
+        "PMPY divides each year's claims/premium by member-years (average lives = "
+        "(prior + current)/2). The driver rows are cumulative vs year 1 and multiply back to "
+        "the claims-PMPY ramp: Claims PMPY[d] / Claims PMPY[1] ≈ Trend × Aging × residual. "
+        "**Trend** is the forward projection trend (Oₓ); **Aging** is the per-duration "
+        "morbidity aging (in Pₓ); the **residual** is UW selection wear-off plus "
+        "antiselective lapsation and surviving-mix shift."
+    )
+
     st.line_chart(pd.DataFrame({
         "In-year LR": series["in_year_lr"],
         "Lifetime LR": series["lifetime_lr"],
@@ -140,8 +184,6 @@ def render() -> None:
 
     st.divider()
     st.subheader("Trend & rerates by year")
-    from app.state import get_assumptions
-    asm = get_assumptions()
     trend = asm.morbidity.trend_by_year
     rerate = result.by_state[state].rerates or [0.0] * PROJECTION_YEARS
     tr = pd.DataFrame({

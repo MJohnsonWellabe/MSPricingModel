@@ -92,6 +92,16 @@ class RerateAssumptions:
     consecutive_b: int                       # ... for b years running
     antiselection_lambda_claims: float       # the 0.5 in 0.5*(rerate - trend) for claims (col P)
     antiselection_lambda_lapse: float        # the 0.5 in 0.5*(rerate - trend) for the lapse load
+    # optional per-state specified-rerate overrides: state -> rerate % by duration. When a
+    # state is present its schedule is used (durations 1-2 always apply, even when solving);
+    # otherwise the shared specified_rerates above are used.
+    by_state: dict = field(default_factory=dict)
+
+    def rerates_for(self, state: str | None) -> list[float]:
+        """Per-state specified rerates if present, else the shared schedule."""
+        if state and state in self.by_state:
+            return list(self.by_state[state])
+        return list(self.specified_rerates)
 
 
 @dataclass

@@ -26,6 +26,10 @@ income statements.
 - Cumulative aging-rerate `H_d = H_{d-1} × (1 + aging_rerate(age))`, `H_1 = 1`.
 - `earned_prem_d = base_prem × G_d × H_d × avg_lives_d`.
 - Achieved rerate = recommended rerate × rerate-effectiveness sensitivity.
+- **The duration-1 rerate applies in year 1** (unlike trend, which starts in year 2):
+  `earned_prem_1 = base_prem × (1 + rerate_1)`. Enter a known upcoming rate action as the
+  duration-1 rerate to reflect increases not captured in the experience. Rerates can be
+  **overridden per state** on the Assumptions → Rerates tab (default = the shared schedule).
 
 ### Claims (morbidity)
 `claims_d = base_cc × selection × trend_d × antiselection_d × state_factor × avg_lives`
@@ -75,34 +79,65 @@ weight (re-normalised to 1 at run time); ratio metrics (loss ratio, IRR) are
 re-derived from the aggregated cashflows. States are combined into an all-states
 view.
 
+**Lifetime loss ratio vs the Claims % margin column.** On the Output tab the **lifetime LR**
+is *undiscounted* — cumulative claims ÷ cumulative premium over the 30-year projection. The
+**Claims %** in the source-of-margin walk is *NPV-discounted* — `NPV(claims) ÷ NPV(premium)`
+at the discount rate. Because premium is relatively heavier in the (less-discounted) early
+years while claims build by duration, the discounted Claims % sits **below** the
+undiscounted lifetime LR; they are different views, not an inconsistency.
+
 ### Experience study (raw data → assumptions)
-- **Sales data** is fit to the model's **joint plan × issue-age × UW grid** (not just
-  marginals) and a **per-state** grid (GI/OE/UW and plan mix vary by state). Premium
-  differentials are **isolated by a multivariate fit** that holds the other variables
-  fixed, so the male-vs-female load reflects gender alone rather than a confounded
-  marginal (e.g. males skewing to cheaper plans). *Adopt distribution / premiums / all*.
-- **Claims data** yields observed claim cost per life. **Exposure = life-years = the
-  `exposure` column if present, else `cnt`** (which already carries annualized exposure);
-  the old `cnt/12` over-divided and reported costs ~12× too high. Claim cost is keyed by
-  **issue age** (bucketed to the key bands). Each piece adopts on its own — base cost,
-  gender, state, selection, **aging** — or all together. Low-credibility bands are
-  **credibility-blended** toward current pricing, `Z = min(1, √(exposure/standard))` with
-  a full-credibility standard you set; bands with no experience keep the pricing value.
-  **Aging** is isolated and forced monotone ≥ 1. The tab shows **current vs suggested**.
-- **base_cc** is the **duration-1, OE-class** claim level by issue age (it is applied
-  constant across duration in the engine; the durational/UW pattern lives in selection ×
-  aging). **Selection** is referenced to that OE / duration-1 level (OE/dur1 = 1.0, UW < 1,
-  GI > 1) — the same basis the engine uses — and shown by issue age × duration, current vs
-  experience vs adopted, credibility-blended toward pricing (thin cells revert).
-- **Aging** is estimated from how claims rise with **attained age** (the data here has
-  only ~6 policy durations, so the duration signal is unreliable); the curve is smoothed
-  (isotonic) and monotone ≥ 1.
-  Adopting **premiums** also writes per-cell premiums from the sales averages so it moves
-  priced premium. **Distribution** is per-state, blended toward the average of like-type
-  states — **Special Enrollment Period (SEP)** states (editable Yes/No on the Distribution tab) skew to
-  open-enrolment; regular states skew underwritten.
-- **AE analysis** compares actual claims to expected (best-estimate assumptions,
-  excluding the pricing antiselection load) at selectable granularity.
+The study turns two raw files into pricing assumptions. Each piece is shown **current vs
+experience vs adopted** and is adopted independently (or all at once); nothing changes
+until you adopt.
+
+**Exposure.** Claim cost per life-year uses **exposure = the `exposure` column if present,
+else `cnt`** (which already carries annualized life-years). Premium per policy-year uses
+`Σearned / Σcnt`. (An earlier `cnt/12` over-divided and inflated costs ~12×.)
+
+**Sales data → distribution & premium** (`experience/sales.py aggregate_sales`,
+`experience/port.py apply_sales`):
+- A national **joint plan × issue-age × UW grid** plus gender / preferred / HHD marginals,
+  and a **per-state grid** (mix varies by state). Each state's grid is credibility-blended
+  toward the average of its **like type** — **Special Enrollment Period (SEP)** states
+  (editable Yes/No on the Distribution tab) skew to open-enrolment; regular states skew
+  underwritten.
+- Premium **differentials are isolated by a multivariate fit** (each holds the others
+  fixed), so e.g. the UW relativity reflects underwriting alone, not a confounded marginal
+  (OE applicants are ~99% preferred, which would otherwise make OE look cheap).
+- Adopting premiums also writes **per-cell premiums** from the sales averages (these
+  dominate the priced premium), so adoption actually moves pricing.
+
+**Claims data → morbidity** (`experience/claims.py derive_morbidity`,
+`experience/port.py apply_claims`). The engine prices a cell's claim as
+`base_cc(issue_age) × class_factors(pref,hhd) × selection(issue_age,uw,dur) × O_d(trend) ×
+P_d(aging + antiselection) × state_factor`, so the study targets each of those pieces:
+- **Base claim cost** = the **all-UW, duration-1 blended** claim cost per life-year by
+  (plan, issue age). It is applied constant across duration in the engine — the duration
+  shape lives in selection × aging — so it is the *first-year* level (matching a direct
+  duration-1 pull from the data).
+- **State factor** = the **isolated (mix-free) duration-1** state effect, from a
+  multivariate fit over (state, plan, issue_age, gender, uw) normalised to a 1.0 mean.
+  Because each state's own age/UW mix is already applied through its distribution grid, the
+  state factor must be the pure per-state level — the raw state/national average would
+  double-count the mix (a state skewed to young/UW cells looks cheap on average but runs
+  above national cell-for-cell).
+- **Selection** = a **duration-1 level** by (issue_age, uw), relative to the all-UW/dur1
+  blend (so OE ramps up with issue age as it antiselects, UW < 1, GI > 1), times a
+  **duration wear-off** taken from the well-populated (uw, duration) data, **net of the
+  aging slope** so it is not double-counted with the engine's aging. Estimating the
+  wear-off per (issue_age, uw, duration) cell was too thin and injected noise.
+- **Aging** = an exposure-weighted **log-linear fit of ln(claim cost) on attained age** →
+  one robust morbidity %/yr, applied as `(1 + rate)^(duration−1)`. Attained age is used
+  (not policy duration) because the data has only ~6 durations; walking a noisy attained-age
+  curve out from a single reference age previously caught a local blip.
+- **Gender** differential is the **isolated** (multivariate) male-vs-female load.
+- **Credibility:** each band is blended toward current pricing with
+  `Z = min(1, √(exposure / standard))` (full-credibility standard is yours to set); thin
+  bands (e.g. high durations) revert to pricing.
+
+**AE analysis** compares actual claims to expected (best-estimate assumptions, excluding the
+pricing antiselection load) at a granularity you choose.
 
 ### Premium & distribution (factor models)
 - **Premium** = `base_by_issue_age (blend at plan G) × plan_rel × gender × uw ×

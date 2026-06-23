@@ -55,7 +55,7 @@ def run_state(
     if solve:
         rerates, info = solve_rerates(cells, asm, sens, state, formulas=formulas)
     else:
-        rerates = list(asm.rerates.specified_rerates)
+        rerates = list(asm.rerates.rerates_for(state))
         info = {"status": "specified", "rerates": rerates}
 
     result = projector(rerates)

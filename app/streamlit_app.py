@@ -31,32 +31,33 @@ def main() -> None:
         "assumptions, run, and review per-state results."
     )
 
-    tabs = st.tabs([
-        "Configuration",
-        "Experience Study",
-        "Assumptions",
-        "Formulas",
-        "Calculation",
-        "Output",
-        "Sensitivity",
-        "Documentation",
-    ])
-    with tabs[0]:
-        t_configuration.render()
-    with tabs[1]:
-        t_experience.render()
-    with tabs[2]:
-        t_assumptions.render()
-    with tabs[3]:
-        t_formulas.render()
-    with tabs[4]:
-        t_calculation.render()
-    with tabs[5]:
-        t_output.render()
-    with tabs[6]:
-        t_sensitivity.render()
-    with tabs[7]:
-        t_documentation.render()
+    # Session-state-driven nav (instead of st.tabs) so the run can auto-switch the
+    # active tab — e.g. land on Output when a model run completes.
+    pages = [
+        ("Configuration", t_configuration),
+        ("Experience Study", t_experience),
+        ("Assumptions", t_assumptions),
+        ("Formulas", t_formulas),
+        ("Calculation", t_calculation),
+        ("Output", t_output),
+        ("Sensitivity", t_sensitivity),
+        ("Documentation", t_documentation),
+    ]
+    names = [n for n, _ in pages]
+    active = st.session_state.get("active_tab", names[0])
+    if active not in names:
+        active = names[0]
+
+    cols = st.columns(len(pages))
+    for col, name in zip(cols, names):
+        kind = "primary" if name == active else "secondary"
+        if col.button(name, key=f"nav_{name}", use_container_width=True, type=kind):
+            st.session_state.active_tab = name
+            st.rerun()
+    st.divider()
+
+    dict(pages)[active].render()
+
 
 
 if __name__ == "__main__":
