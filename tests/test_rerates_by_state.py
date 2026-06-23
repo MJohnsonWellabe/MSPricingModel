@@ -29,3 +29,18 @@ def test_duration1_rerate_raises_first_year_premium():
                / base.by_state["TX"].series["earned_prem"][0] - 1.05) < 1e-4
     assert abs(new.by_state["AZ"].series["earned_prem"][0]
                - base.by_state["AZ"].series["earned_prem"][0]) < 1e-6
+
+
+def test_target_lifetime_lr_by_state_round_trips_and_solves():
+    import copy
+    a = copy.deepcopy(default_assumptions())
+    a.rerates.target_lifetime_lr_by_state["TX"] = 0.70
+    b = assumptions_from_dict(assumptions_to_dict(a))
+    assert b.rerates.target_lifetime_lr_by_state["TX"] == 0.70
+    assert b.rerates.target_for("TX") == 0.70
+    assert b.rerates.target_for("AZ") == a.rerates.target_lifetime_lr   # shared fallback
+    # the solver hits the per-state target
+    b.rerates.solve = True
+    _, diag = run(default_cells(), b, RunConfig(states=["TX"], solve_rerates=True))
+    if diag["TX"]["status"] == "converged":
+        assert abs(diag["TX"]["achieved_lifetime_lr"] - 0.70) < 5e-3

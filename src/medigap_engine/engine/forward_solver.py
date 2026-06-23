@@ -80,6 +80,7 @@ def precompute(cells, asm: AssumptionSet, state: str) -> dict:
         lam_lapse=asm.rerates.antiselection_lambda_lapse,
         lam_claims=asm.rerates.antiselection_lambda_claims,
         spec=list(asm.rerates.rerates_for(state)),   # per-state specified rerates (durs 1-2)
+        target=asm.rerates.target_for(state),        # per-state target lifetime LR
     )
 
 
@@ -202,7 +203,7 @@ def solve_with_precompute(P, asm: AssumptionSet, sens, tol: float = 1e-3,
         lifetime = cum_c / cum_p if cum_p else 0.0
         return rates, lifetime
 
-    target = rr.target_lifetime_lr
+    target = P.get("target", rr.target_lifetime_lr)   # per-state target when present
     rates_lo, lr_hi = forward(2.0)      # least rerate -> highest lifetime LR
     rates_hi, lr_lo = forward(float(n))  # most rerate -> lowest lifetime LR
 

@@ -96,12 +96,21 @@ class RerateAssumptions:
     # state is present its schedule is used (durations 1-2 always apply, even when solving);
     # otherwise the shared specified_rerates above are used.
     by_state: dict = field(default_factory=dict)
+    # optional per-state target lifetime loss ratio (the rerate solver target). When a state
+    # is present its target is used; otherwise the shared ``target_lifetime_lr``.
+    target_lifetime_lr_by_state: dict = field(default_factory=dict)
 
     def rerates_for(self, state: str | None) -> list[float]:
         """Per-state specified rerates if present, else the shared schedule."""
         if state and state in self.by_state:
             return list(self.by_state[state])
         return list(self.specified_rerates)
+
+    def target_for(self, state: str | None) -> float:
+        """Per-state target lifetime LR if present, else the shared target."""
+        if state and state in self.target_lifetime_lr_by_state:
+            return float(self.target_lifetime_lr_by_state[state])
+        return float(self.target_lifetime_lr)
 
 
 @dataclass

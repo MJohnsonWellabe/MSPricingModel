@@ -59,16 +59,26 @@ def render() -> None:
 
     with col2:
         states = available_states()
-        scope = st.radio("State scope", ["All states (combined book)", "Select states"],
-                         index=0, key="cfg_scope")
-        if scope.startswith("All"):
+        individual = [s for s in states if s != "All"]
+        scope_opts = ["All states (combined book)",
+                      "All states individually (run each of the ~%d)" % len(individual),
+                      "Select states"]
+        # persist the scope across the session-state nav
+        scope_default = st.session_state.get("cfg_scope_sel", scope_opts[0])
+        scope = st.radio("State scope", scope_opts,
+                         index=scope_opts.index(scope_default) if scope_default in scope_opts else 0,
+                         key="cfg_scope")
+        st.session_state.cfg_scope_sel = scope
+        if scope.startswith("All states (combined"):
             selected = ["All"]
+        elif scope.startswith("All states individually"):
+            selected = list(individual)
         else:
-            # "All" remains selectable alongside individual states
-            selected = st.multiselect(
-                "States", states,
-                default=[s for s in states if s != "All"][:3], key="cfg_states",
-            )
+            # persist the multiselect across nav (the nav re-renders this tab fresh)
+            prev = [s for s in st.session_state.get("cfg_states_sel", individual[:3]) if s in states]
+            selected = st.multiselect("States", states, default=prev or individual[:3],
+                                      key="cfg_states")
+            st.session_state.cfg_states_sel = selected
             if not selected:
                 selected = ["All"]
 

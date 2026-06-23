@@ -238,26 +238,45 @@ def _rerates(asm) -> None:
     red = st.data_editor(rdf, use_container_width=True, height=300, key="spec_rerate")
     r.specified_rerates = red["Rerate"].tolist()
 
-    st.markdown("**Per-state rerate overrides** (optional)")
-    st.caption("Pick a state and edit its schedule to override the shared one above for that "
-               "state (e.g. a known state-specific rate action). States without an override "
-               "use the shared schedule.")
     states = [s for s in available_states() if s != "All"]
-    pc = st.columns([1, 3])
-    sel = pc[0].selectbox("State", states, key="rr_state")
-    has = sel in r.by_state
-    pc[0].caption("Override active" if has else "Using shared schedule")
-    if not has and pc[0].button("Add override (copy shared)", key="rr_add"):
-        r.by_state[sel] = list(r.specified_rerates)
-        st.rerun()
-    if has:
-        if pc[0].button("Remove override", key="rr_del"):
-            del r.by_state[sel]
-            st.rerun()
-        sdf = pd.DataFrame({"Rerate": r.by_state[sel]},
-                           index=range(1, len(r.by_state[sel]) + 1))
-        sed = pc[1].data_editor(sdf, use_container_width=True, height=300, key=f"rr_state_{sel}")
-        r.by_state[sel] = sed["Rerate"].tolist()
+
+    st.markdown("**Per-state rerate overrides** — grid of duration (rows) × state (columns)")
+    st.caption("Select the states to override; each starts from the shared schedule above. "
+               "Edit a column to set that state's rerate by duration; deselect to remove the "
+               "override. States without an override use the shared schedule.")
+    rr_states = st.multiselect("States with a rerate override", states,
+                               default=sorted(r.by_state), key="rr_ovr_states")
+    for s in rr_states:
+        r.by_state.setdefault(s, list(r.specified_rerates))
+    for s in [s for s in r.by_state if s not in rr_states]:
+        del r.by_state[s]
+    if rr_states:
+        gdf = pd.DataFrame({s: r.by_state[s] for s in rr_states},
+                           index=range(1, PROJECTION_YEARS + 1))
+        ged = st.data_editor(gdf, use_container_width=True, height=320, key="rr_grid",
+                             column_config={s: st.column_config.NumberColumn(format="%.4f")
+                                            for s in rr_states})
+        for s in rr_states:
+            if s in ged:
+                r.by_state[s] = ged[s].tolist()
+
+    st.markdown("**Per-state target lifetime loss ratio** — overrides the shared target above")
+    st.caption("The rerate solver targets this lifetime LR for the state; unlisted states use "
+               "the shared target.")
+    tgt_states = st.multiselect("States with a target-LR override", states,
+                                default=sorted(r.target_lifetime_lr_by_state), key="rr_tgt_states")
+    for s in tgt_states:
+        r.target_lifetime_lr_by_state.setdefault(s, float(r.target_lifetime_lr))
+    for s in [s for s in r.target_lifetime_lr_by_state if s not in tgt_states]:
+        del r.target_lifetime_lr_by_state[s]
+    if tgt_states:
+        tdf = pd.DataFrame({"Target lifetime LR": [r.target_lifetime_lr_by_state[s] for s in tgt_states]},
+                           index=tgt_states)
+        ted = st.data_editor(tdf, use_container_width=True, key="rr_tgt_grid",
+                             column_config={"Target lifetime LR":
+                                            st.column_config.NumberColumn(format="%.3f")})
+        for s in tgt_states:
+            r.target_lifetime_lr_by_state[s] = float(ted.loc[s, "Target lifetime LR"])
 
 
 def _premium(asm) -> None:
@@ -475,6 +494,11 @@ def _termination(asm) -> None:
                                        step=0.01, format="%.3f")
     t.dur3plus_scaling = c[1].number_input("Duration 3+ scaling", value=float(t.dur3plus_scaling),
                                            step=0.01, format="%.3f")
+
+    st.subheader("State lapse factors")
+    st.caption("A per-state multiplier on the lapse rate (1.0 = national). Applied as "
+               "lapse × state factor when pricing that state.")
+    t.state_factors = _dict_editor(t.state_factors, "Lapse factor", "term_state", fmt="%.4f")
 
     st.subheader("Mortality table")
     mdf = pd.DataFrame({"Age": t.mort_age, "qx": t.mort_qx})

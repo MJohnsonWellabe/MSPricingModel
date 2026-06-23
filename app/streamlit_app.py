@@ -16,6 +16,7 @@ from app.tabs import (
     documentation as t_documentation,
     experience_study as t_experience,
     formulas as t_formulas,
+    granular as t_granular,
     output as t_output,
     sensitivity as t_sensitivity,
 )
@@ -40,6 +41,7 @@ def main() -> None:
         ("Formulas", t_formulas),
         ("Calculation", t_calculation),
         ("Output", t_output),
+        ("Granular", t_granular),
         ("Sensitivity", t_sensitivity),
         ("Documentation", t_documentation),
     ]

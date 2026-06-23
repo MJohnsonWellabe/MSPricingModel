@@ -331,6 +331,13 @@ def main(path: str) -> None:
         assumptions["morbidity"]["state_factors"]["TX"] = round(float(z1), 8)
         assumptions["morbidity"]["state_factors"].setdefault("All", 1.0)
 
+    # default the duration-2 and duration-3 rerates to 20% (pricing default; the workbook's
+    # own 15% schedule is pinned in the TX validation test so it still ties to Excel exactly).
+    rr = assumptions["rerates"]["specified_rerates"]
+    if len(rr) >= 3:
+        rr[1] = 0.20
+        rr[2] = 0.20
+
     # claims base cost is indexed by ISSUE age, so keep only the issue-age bands the
     # book actually prices (the distinct issue ages in the cell universe); the rest of
     # the 65-100 attained-age range was only needed when base cost aged by duration.

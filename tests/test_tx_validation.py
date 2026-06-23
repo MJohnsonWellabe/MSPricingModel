@@ -29,6 +29,10 @@ AT_ADJ = [-890.31866, -76.188877, -17.474193, 51.827675, 127.768857, 217.859797,
 def _tx():
     asm = default_assumptions()
     asm.rerates.solve = False  # workbook uses its specified rerate schedule (no solve)
+    # the shipped default sets durations 2 & 3 to 20%; pin them back to the workbook's 15%
+    # so TX premium/claims still reproduce the Excel 'Aggregate Model' sheet exactly.
+    asm.rerates.specified_rerates[1] = 0.15
+    asm.rerates.specified_rerates[2] = 0.15
     result, _ = run(build_cells(asm), asm, RunConfig(states=["TX"], solve_rerates=False))
     return result.by_state["TX"]
 

@@ -177,8 +177,11 @@ def _rerates(ws, a: AssumptionSet) -> None:
         states = sorted(r.by_state)
         rows = [[d, *[r.by_state[s][i] if i < len(r.by_state[s]) else None for s in states]]
                 for i, d in enumerate(_durations(PROJECTION_YEARS))]
-        _table(ws, row, "Per-state rerate overrides by duration",
-               ["Duration", *states], rows)
+        row = _table(ws, row, "Per-state rerate overrides by duration",
+                     ["Duration", *states], rows)
+    if r.target_lifetime_lr_by_state:
+        _table(ws, row, "Per-state target lifetime LR overrides", ["State", "Target LR"],
+               sorted(r.target_lifetime_lr_by_state.items()))
 
 
 def _distribution(ws, a: AssumptionSet) -> None:

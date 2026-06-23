@@ -90,6 +90,24 @@ def _sales_section() -> None:
     st.dataframe(pd.DataFrame(grid_rows).T.sort_index().fillna(0.0),
                  use_container_width=True, height=240)
 
+    st.markdown("**Gender / preferred / HHD marginals — current vs suggested**")
+    st.caption("These independent marginals are applied on top of the joint grid and DO pull "
+               "through on adopt (gender claim/premium differentials are also isolated below).")
+    cd = cur.distribution
+    mc = st.columns(3)
+    for col, label, sug, curm in (
+        (mc[0], "Gender", d.gender, cd.gender),
+        (mc[1], "Preferred", d.preferred, cd.preferred),
+        (mc[2], "HHD", d.hhd, cd.hhd),
+    ):
+        with col:
+            st.markdown(f"*{label}*")
+            keys = sorted(set(sug) | set(curm))
+            st.dataframe(pd.DataFrame({
+                "current": {k: round(curm.get(k, 0.0), 4) for k in keys},
+                "suggested": {k: round(sug.get(k, 0.0), 4) for k in keys},
+            }), use_container_width=True)
+
     if d.by_state:
         sep = set(d.sep_rule_states or [])
         st.markdown("**UW mix by state** (GI / OE / UW share) — blended toward the "
