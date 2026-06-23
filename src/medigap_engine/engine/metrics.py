@@ -11,6 +11,20 @@ def npv(rate: float, cashflows: Sequence[float]) -> float:
     return sum(cf / (1.0 + rate) ** (t + 1) for t, cf in enumerate(cashflows))
 
 
+def discounted_cumulative_lr(claims: Sequence[float], premium: Sequence[float],
+                             rate: float) -> list[float]:
+    """Running NPV-discounted loss ratio by duration: at duration d, the NPV of claims
+    through d divided by the NPV of premium through d (same discount convention as ``npv``,
+    so the final element equals ``npv(rate, claims) / npv(rate, premium)``)."""
+    out, cum_c, cum_p = [], 0.0, 0.0
+    for t, (c, p) in enumerate(zip(claims, premium)):
+        df = 1.0 / (1.0 + rate) ** (t + 1)
+        cum_c += c * df
+        cum_p += p * df
+        out.append(cum_c / cum_p if cum_p else 0.0)
+    return out
+
+
 def _npv_for_irr(rate: float, cashflows: Sequence[float]) -> float:
     # IRR convention: first cashflow at t=0 (undiscounted).
     base = 1.0 + rate

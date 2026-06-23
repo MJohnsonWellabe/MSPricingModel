@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ..models.assumptions import AssumptionSet, PROJECTION_YEARS
 from ..models.results import CellResult, StateResult
-from .metrics import irr, npv
+from .metrics import discounted_cumulative_lr, irr, npv
 
 # Additive series safe to weight-and-sum: dollar line items plus inforce lives
 # (lives is per policy issued, the book being normalised to weights summing to 1).
@@ -35,18 +35,13 @@ def _add_weighted(acc: dict[str, list[float]], result: CellResult, weight: float
 def _finalise(series: dict[str, list[float]], asm: AssumptionSet) -> dict:
     claims = series["claims"]
     prem = series["earned_prem"]
-    cum_c = cum_p = 0.0
-    in_year = [0.0] * PROJECTION_YEARS
-    lifetime = [0.0] * PROJECTION_YEARS
-    for i in range(PROJECTION_YEARS):
-        cum_c += claims[i]
-        cum_p += prem[i]
-        in_year[i] = claims[i] / prem[i] if prem[i] else 0.0
-        lifetime[i] = cum_c / cum_p if cum_p else 0.0
+    rate = asm.other.discount_rate
+    in_year = [claims[i] / prem[i] if prem[i] else 0.0 for i in range(PROJECTION_YEARS)]
+    # lifetime LR is the NPV-discounted running ratio (final = NPV claims / NPV premium)
+    lifetime = discounted_cumulative_lr(claims, prem, rate)
     series = dict(series)
     series["in_year_lr"] = in_year
     series["lifetime_lr"] = lifetime
-    rate = asm.other.discount_rate
     # NPV of every income-statement line (source-of-margin analysis: each ÷ NPV premium)
     npv_by_line = {k: npv(rate, series[k]) for k in _DOLLAR_SERIES}
     metrics = {

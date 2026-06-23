@@ -12,14 +12,15 @@ def test_aggregate_sums_weighted_dollars(asm, cells, base_sens):
     assert abs(agg.series["earned_prem"][0] - expected) < 1e-6
 
 
-def test_aggregate_lifetime_lr_from_aggregated_dollars(asm, cells, base_sens):
+def test_aggregate_lifetime_lr_is_discounted(asm, cells, base_sens):
+    from medigap_engine.engine.metrics import npv
     subset = cells[:20]
     rerates = list(asm.rerates.specified_rerates)
     results = [project_cell(c, asm, base_sens, "All", rerates) for c in subset]
     agg = aggregate_cells("All", results, asm)
-    cum_c = sum(agg.series["claims"])
-    cum_p = sum(agg.series["earned_prem"])
-    assert abs(agg.lifetime_lr - cum_c / cum_p) < 1e-9
+    rate = asm.other.discount_rate
+    expected = npv(rate, agg.series["claims"]) / npv(rate, agg.series["earned_prem"])
+    assert abs(agg.lifetime_lr - expected) < 1e-9
 
 
 def test_aggregate_includes_lives(asm, cells, base_sens):

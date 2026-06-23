@@ -113,10 +113,9 @@ def render() -> None:
                "**%** columns are the NPV of each income-statement line ÷ NPV of premium — a "
                "source-of-margin walk (premium 100% + NII − claims − expenses = pre-tax %). "
                "Exp LR (d1) is the duration-1 actual loss ratio from the loaded claims "
-               "experience, if any. **Lifetime LR is undiscounted** (Σclaims ÷ Σpremium over "
-               "30 yrs) while the **Claims % column is NPV-discounted** (NPV claims ÷ NPV "
-               "premium); with premium-heavier early years and claims that build by duration, "
-               "the discounted Claims % is below the undiscounted Lifetime LR.")
+               "experience, if any. **Lifetime LR is the NPV-discounted ratio** (NPV claims ÷ "
+               "NPV premium at the discount rate) — the same basis as the Claims % column in "
+               "the margin walk, and the basis the rerate solver targets.")
     st.download_button("Download summary (CSV)", summary.to_csv(index=False),
                        "summary.csv", "text/csv", key="out_download")
 

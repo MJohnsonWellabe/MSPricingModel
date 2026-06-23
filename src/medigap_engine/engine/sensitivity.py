@@ -89,12 +89,13 @@ def simulate_portfolio(cells, asm: AssumptionSet, states: list[str], specs: dict
     Ps = {s: precompute(cells, asm, s) for s in states}
     irrs, lrs, pti, sens_vecs = [], [], [], []
     target_met = 0
-    from .metrics import irr as _irr
+    from .metrics import discounted_cumulative_lr, irr as _irr
+    dr = asm.other.discount_rate
     for _ in range(n_sims):
         sens = _draw(rng, specs)
         pooled_ah = None
         pooled_pti = None
-        cum_c = cum_p = 0.0
+        pooled_c = pooled_p = None
         ok = True
         for s, P in Ps.items():
             vec, info = solve_with_precompute(P, asm, sens, formulas=formulas)
@@ -105,15 +106,17 @@ def simulate_portfolio(cells, asm: AssumptionSet, states: list[str], specs: dict
             if pooled_ah is None:
                 pooled_ah = list(ah)
                 pooled_pti = list(ptis)
+                pooled_c = list(series["claims"])
+                pooled_p = list(series["earned_prem"])
             else:
                 pooled_ah = [a + b for a, b in zip(pooled_ah, ah)]
                 pooled_pti = [a + b for a, b in zip(pooled_pti, ptis)]
-            cum_c += sum(series["claims"])
-            cum_p += sum(series["earned_prem"])
+                pooled_c = [a + b for a, b in zip(pooled_c, series["claims"])]
+                pooled_p = [a + b for a, b in zip(pooled_p, series["earned_prem"])]
             if info.get("status") not in ("converged", "target_met_without_rerate"):
                 ok = False
         irrs.append(_irr(pooled_ah or [0.0]))
-        lrs.append(cum_c / cum_p if cum_p else 0.0)
+        lrs.append(discounted_cumulative_lr(pooled_c or [0.0], pooled_p or [1.0], dr)[-1])
         pti.append(pooled_pti or [])
         sens_vecs.append({f: getattr(sens, f) for f in FACTORS})
         if ok:

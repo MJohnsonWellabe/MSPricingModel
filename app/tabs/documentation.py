@@ -79,12 +79,12 @@ weight (re-normalised to 1 at run time); ratio metrics (loss ratio, IRR) are
 re-derived from the aggregated cashflows. States are combined into an all-states
 view.
 
-**Lifetime loss ratio vs the Claims % margin column.** On the Output tab the **lifetime LR**
-is *undiscounted* — cumulative claims ÷ cumulative premium over the 30-year projection. The
-**Claims %** in the source-of-margin walk is *NPV-discounted* — `NPV(claims) ÷ NPV(premium)`
-at the discount rate. Because premium is relatively heavier in the (less-discounted) early
-years while claims build by duration, the discounted Claims % sits **below** the
-undiscounted lifetime LR; they are different views, not an inconsistency.
+**Lifetime loss ratio.** The **lifetime LR** is the **NPV-discounted** ratio —
+`NPV(claims) ÷ NPV(premium)` at the discount rate — so it equals the **Claims %** column in
+the source-of-margin walk, and it is the basis the **rerate solver targets** (it solves
+rerates so the discounted lifetime LR meets `target_lifetime_lr`). The per-duration
+`lifetime_lr` series is the running discounted ratio through each duration. (In-year LR stays
+an undiscounted per-year ratio.)
 
 ### Experience study (raw data → assumptions)
 The study turns two raw files into pricing assumptions. Each piece is shown **current vs

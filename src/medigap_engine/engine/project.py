@@ -116,9 +116,10 @@ def project_cell(
             S[series_name][i] = float(ns[ns_name])
         earned = S["earned_prem"][i]
         claims = S["claims"][i]
-        cum_claims += claims
-        cum_prem += earned
-        S["in_year_lr"][i] = claims / earned if earned else 0.0
+        df = 1.0 / (1.0 + o.discount_rate) ** (i + 1)   # NPV-discounted lifetime LR
+        cum_claims += claims * df
+        cum_prem += earned * df
+        S["in_year_lr"][i] = claims / earned if earned else 0.0   # per-year ratio, undiscounted
         S["lifetime_lr"][i] = cum_claims / cum_prem if cum_prem else 0.0
 
         lives_prev = ns["lives_d"]

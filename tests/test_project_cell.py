@@ -17,13 +17,14 @@ def test_lives_monotone_decreasing(asm, sample_cell, base_sens):
     assert 0 < lives[0] <= 1.0
 
 
-def test_lifetime_lr_is_cumulative(asm, sample_cell, base_sens):
+def test_lifetime_lr_is_discounted(asm, sample_cell, base_sens):
+    from medigap_engine.engine.metrics import npv
     res = project_cell(sample_cell, asm, base_sens, "All",
                        list(asm.rerates.specified_rerates))
     p = res.projection.series
-    cum_c = sum(p["claims"])
-    cum_p = sum(p["earned_prem"])
-    assert abs(res.lifetime_lr - cum_c / cum_p) < 1e-9
+    rate = asm.other.discount_rate
+    expected = npv(rate, p["claims"]) / npv(rate, p["earned_prem"])
+    assert abs(res.lifetime_lr - expected) < 1e-9
 
 
 def test_morbidity_sensitivity_scales_claims(asm, sample_cell, base_sens):

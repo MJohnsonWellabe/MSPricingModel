@@ -162,6 +162,7 @@ def solve_with_precompute(P, asm: AssumptionSet, sens, tol: float = 1e-3,
                           ) -> tuple[list[float], dict]:
     n = P["n"]
     rr = asm.rerates
+    dr = asm.other.discount_rate                   # for the discounted lifetime-LR target
     spec = P.get("spec") or rr.specified_rerates   # per-state schedule when present
     floor = rr.in_year_lr_floor
     z, b_rule = rr.consecutive_z, max(1, rr.consecutive_b)
@@ -193,8 +194,9 @@ def solve_with_precompute(P, asm: AssumptionSet, sens, tol: float = 1e-3,
                 else:
                     rate = trend_i
             ea, ca, _iy, carry = _core_step(P, asm, sens, i, rate, carry, core)
-            cum_p += ea
-            cum_c += ca
+            df = 1.0 / (1.0 + dr) ** (i + 1)   # NPV-discounted lifetime LR (solver target)
+            cum_p += ea * df
+            cum_c += ca * df
             rates[i] = rate
             run = run + 1 if rate > z else 0
         lifetime = cum_c / cum_p if cum_p else 0.0
@@ -266,13 +268,15 @@ def project_aggregate(P, asm: AssumptionSet, sens, rates,
     nc = len(w)
     carry = _init_carry(nc, full=True)
     cum_c = cum_p = 0.0
+    dr = asm.other.discount_rate                   # discounted lifetime LR (matches aggregate)
     ah = [0.0] * n
     for i in range(n):
         rate = rates[i] * eff
         ns = _make_ns(P, asm, sens, i, rate, carry, extra=extra)
         eval_steps(full, ns)
-        cum_p += float(np.dot(w, ns["earned_prem"]))
-        cum_c += float(np.dot(w, ns["claims"]))
+        df = 1.0 / (1.0 + dr) ** (i + 1)
+        cum_p += float(np.dot(w, ns["earned_prem"])) * df
+        cum_c += float(np.dot(w, ns["claims"])) * df
         ah[i] = float(np.dot(w, ns["ah"]))
         if series is not None:
             for k in _LINES:
