@@ -8,11 +8,12 @@ from ..models.assumptions import AssumptionSet, derive_two_level, normalized_fac
 
 
 def base_claim_cost(asm: AssumptionSet, gender: str, age: int, plan: str,
-                    state: str | None = None) -> float:
+                    state: str | None = None, bring_forward: bool = True) -> float:
     """Base (gender-blend) claim cost by **issue age** and plan, scaled by the gender
     relativity normalised against the gender mix and brought forward to the pricing
     period by the one-time claims pull-forward. Ages outside the table clamp to the
-    nearest end; intermediate ages use the nearest age at or below."""
+    nearest end; intermediate ages use the nearest age at or below. Pass
+    ``bring_forward=False`` for the experience-level (best-estimate) cost, e.g. A/E."""
     morb = asm.morbidity
     ages = morb.ages
     table = morb.base_cc[plan]
@@ -27,8 +28,8 @@ def base_claim_cost(asm: AssumptionSet, gender: str, age: int, plan: str,
     gfac = normalized_factors({"M": 1.0 + morb.gender_cc_diff, "F": 1.0},
                               asm.distribution.gender_mix(state))
     pf = asm.pull_forward
-    bring_forward = (1.0 + pf.claims_trend) ** pf.duration
-    return table[idx] * gfac.get(gender, 1.0) * bring_forward
+    bf = (1.0 + pf.claims_trend) ** pf.duration if bring_forward else 1.0
+    return table[idx] * gfac.get(gender, 1.0) * bf
 
 
 def premium_for_cell(asm: AssumptionSet, key, state: str) -> float:

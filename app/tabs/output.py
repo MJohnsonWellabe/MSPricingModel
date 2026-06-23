@@ -157,23 +157,41 @@ def render() -> None:
     base = claims_pmpy[0] or 1.0
     resid = [(claims_pmpy[i] / base) / (trend_cum[i] * aging_cum[i])
              if trend_cum[i] * aging_cum[i] else 1.0 for i in range(PROJECTION_YEARS)]
+    # premium-PMPY drivers: cumulative rerate (G), aging-rerate (H = total/rerate), and the
+    # demographic mix-shift residual — all relative to year 1, multiplying back to the ramp.
+    be = series.get("base_earned") or [0.0] * PROJECTION_YEARS
+    tre = [series["earned_prem"][i] / be[i] if be[i] else 1.0 for i in range(PROJECTION_YEARS)]
+    tre_rel = [t / (tre[0] or 1.0) for t in tre]
+    rerates = result.by_state[state].rerates or []
+    rer_cum, rc = [], 1.0
+    for i in range(PROJECTION_YEARS):
+        rc *= 1.0 + (rerates[i] if i < len(rerates) else 0.0)
+        rer_cum.append(rc)
+    rer_rel = [r / (rer_cum[0] or 1.0) for r in rer_cum]
+    agr_rel = [tre_rel[i] / rer_rel[i] if rer_rel[i] else 1.0 for i in range(PROJECTION_YEARS)]
+    pbase = prem_pmpy[0] or 1.0
+    demo = [(prem_pmpy[i] / pbase) / tre_rel[i] if tre_rel[i] else 1.0
+            for i in range(PROJECTION_YEARS)]
     st.markdown("**Claims & premium PMPY, and the drivers of the duration ramp**")
     drv = pd.DataFrame({
         "Claims PMPY": claims_pmpy,
+        "— Trend (cum ×)": trend_cum,
+        "— Aging (cum ×)": aging_cum,
+        "— Selection wear-off + antisel + mix (×)": resid,
         "Premium PMPY": prem_pmpy,
-        "Trend (cum ×)": trend_cum,
-        "Aging (cum ×)": aging_cum,
-        "Selection wear-off + antisel + mix (×)": resid,
+        "— Rerate (cum ×)": rer_rel,
+        "— Aging-rerate (cum ×)": agr_rel,
+        "— Demographic mix shift (×)": demo,
     }).T
     drv.columns = [f"Yr {i}" for i in range(1, PROJECTION_YEARS + 1)]
     st.table(drv.style.format("{:,.3f}"))
     st.caption(
         "PMPY divides each year's claims/premium by member-years (average lives = "
-        "(prior + current)/2). The driver rows are cumulative vs year 1 and multiply back to "
-        "the claims-PMPY ramp: Claims PMPY[d] / Claims PMPY[1] ≈ Trend × Aging × residual. "
-        "**Trend** is the forward projection trend (Oₓ); **Aging** is the per-duration "
-        "morbidity aging (in Pₓ); the **residual** is UW selection wear-off plus "
-        "antiselective lapsation and surviving-mix shift."
+        "(prior + current)/2). Each set of driver rows is cumulative vs year 1 and multiplies "
+        "back to its PMPY ramp. **Claims:** Trend (forward projection Oₓ) × Aging (per-duration "
+        "morbidity in Pₓ) × residual (UW selection wear-off + antiselective lapsation + mix). "
+        "**Premium:** Rerate (cumulative rate actions) × Aging-rerate (attained-age premium "
+        "scaling Hₓ) × Demographic mix shift (the surviving book's changing average premium)."
     )
 
     st.line_chart(pd.DataFrame({

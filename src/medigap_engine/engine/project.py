@@ -78,7 +78,7 @@ def project_cell(
         "rbc_factor": o.rbc_factor, "covariance": o.covariance,
     }
 
-    S = {k: [0.0] * n for k in (*_SERIES_FROM_NS, "in_year_lr", "lifetime_lr")}
+    S = {k: [0.0] * n for k in (*_SERIES_FROM_NS, "base_earned", "in_year_lr", "lifetime_lr")}
 
     lives_prev = 1.0
     G_prev = H_prev = O_prev = P_prev = 1.0
@@ -116,6 +116,10 @@ def project_cell(
             S[series_name][i] = float(ns[ns_name])
         earned = S["earned_prem"][i]
         claims = S["claims"][i]
+        # earned premium stripped of the rerate/aging-rerate factor (= base_prem x avg_lives),
+        # so the aggregate effective rerate = earned_prem / base_earned drives the PMPY split
+        tr = S["total_rerate"][i]
+        S["base_earned"][i] = earned / tr if tr else earned
         df = 1.0 / (1.0 + o.discount_rate) ** (i + 1)   # NPV-discounted lifetime LR
         cum_claims += claims * df
         cum_prem += earned * df

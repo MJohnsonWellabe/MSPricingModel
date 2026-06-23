@@ -144,8 +144,14 @@ def _premium(ws, a: AssumptionSet) -> None:
         ("Non-preferred premium higher by", p.preferred_diff),
         ("Non-HHD premium higher by", p.hhd_diff),
     ])
-    _table(ws, row, "State premium factors (raw)", ["State", "Factor"],
-           sorted(p.state_factor.items()))
+    row = _table(ws, row, "State premium factors (raw)", ["State", "Factor"],
+                 sorted(p.state_factor.items()))
+    if p.cell_premiums:
+        states = sorted({s for m in p.cell_premiums.values() for s in m})
+        rows = [[label, *[round(m[s], 2) if s in m else None for s in states]]
+                for label, m in sorted(p.cell_premiums.items())]
+        _table(ws, row, "Per-cell premiums — exact rates by state (override the factor model)",
+               ["Cell", *states], rows)
 
 
 def _rerates(ws, a: AssumptionSet) -> None:
@@ -161,11 +167,18 @@ def _rerates(ws, a: AssumptionSet) -> None:
         ("Consecutive rule: z", r.consecutive_z),
         ("Consecutive rule: b (years)", r.consecutive_b),
     ])
-    row = _table(ws, row, "Specified rerates by duration", ["Duration", "Rerate"],
+    row = _table(ws, row, "Specified rerates by duration (shared / national)",
+                 ["Duration", "Rerate"],
                  [[d, r.specified_rerates[i]]
                   for i, d in enumerate(_durations(len(r.specified_rerates)))])
-    _table(ws, row, "Aging rerate by attained age (column H)", ["Age", "Aging rerate"],
-           list(zip(r.aging_rerate_by_age_ages, r.aging_rerate_by_age_factor)))
+    row = _table(ws, row, "Aging rerate by attained age (column H)", ["Age", "Aging rerate"],
+                 list(zip(r.aging_rerate_by_age_ages, r.aging_rerate_by_age_factor)))
+    if r.by_state:
+        states = sorted(r.by_state)
+        rows = [[d, *[r.by_state[s][i] if i < len(r.by_state[s]) else None for s in states]]
+                for i, d in enumerate(_durations(PROJECTION_YEARS))]
+        _table(ws, row, "Per-state rerate overrides by duration",
+               ["Duration", *states], rows)
 
 
 def _distribution(ws, a: AssumptionSet) -> None:
@@ -185,6 +198,23 @@ def _distribution(ws, a: AssumptionSet) -> None:
         rows = [[k, v] for k, v in items]
         rows.append(["Sum", sum(mapping.values())])
         row = _table(ws, row, title, ["Level", "Weight"], rows)
+    if d.sep_rule_states:
+        row = _table(ws, row, "Special Enrollment Period (SEP) states",
+                     ["State"], [[s] for s in sorted(d.sep_rule_states)])
+    if d.state_weights:
+        row = _table(ws, row, "New-business volume weights by state (combine weighting)",
+                     ["State", "Weight"], sorted(d.state_weights.items()))
+    if d.by_state:
+        rows = []
+        for s in sorted(d.by_state):
+            joint = d.by_state[s].get("joint", {})
+            for pl in sorted(joint):
+                for age in ages:
+                    cell = joint.get(pl, {}).get(str(age), {})
+                    rows.append([s, pl, age, *[round(cell.get(u, 0.0), 6) for u in uws]])
+        if rows:
+            _table(ws, row, "Per-state mix-of-business grid (joint plan x issue age x UW)",
+                   ["State", "Plan", "Issue age", *uws], rows)
 
 
 def _termination(ws, a: AssumptionSet) -> None:

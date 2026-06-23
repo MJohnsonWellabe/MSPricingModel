@@ -121,6 +121,11 @@ def apply_sales(asm: AssumptionSet, sales: dict, parts=("distribution", "premium
             target = group_grid.get(g, nat)
             z = credibility_z(state_total[s], distribution_cred_standard)
             new.distribution.by_state[s] = _blend_grids(own, target, z)
+        # cross-state new-business volume shares, for the portfolio "(combined)" weighting
+        tot = sum(state_total.values())
+        if tot > 0:
+            new.distribution.state_weights = {s: round(c / tot, 8)
+                                              for s, c in state_total.items()}
 
     # ---- premium: ISOLATED multivariate main-effects fit (key dims 0=age, 1=gender,
     # 2=plan, 3=uw, 4=preferred, 5=hhd), so each differential holds the others fixed
@@ -227,11 +232,14 @@ def apply_claims(asm: AssumptionSet, claims: dict,
         if gd is not None:
             morb.gender_cc_diff = float(gd)
 
-    # state factors from observed relativities (keep existing where not observed)
+    # state factors from observed relativities, credibility-blended toward 1.0 (national) by
+    # each state's exposure — thin states revert toward the national level.
     if "state" in parts:
+        sexp = claims.get("state_exposure", {})
         for state, f in claims.get("state_factors", {}).items():
             if f > 0:
-                morb.state_factors[state] = f
+                z = credibility_z(sexp.get(state, 0.0), credibility_standard)
+                morb.state_factors[state] = round(blend(f, 1.0, z), 6)
 
     # UW selection by (issue_age, uw, duration), credibility-blended toward the current
     # pricing selection (thin cells, e.g. high durations, revert to pricing).

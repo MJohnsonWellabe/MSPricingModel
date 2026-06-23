@@ -45,14 +45,25 @@ def test_aggregate_carries_rerate_vector(asm, cells, base_sens):
     assert len(agg.rerates) == len(rerates)
 
 
-def test_aggregate_states_combines(asm, cells, base_sens):
+def test_aggregate_states_is_volume_weighted_average(asm, cells, base_sens):
+    import copy
     subset = cells[:10]
     rerates = list(asm.rerates.specified_rerates)
     per_state = {}
     for s in ("TX", "FL"):
         results = [project_cell(c, asm, base_sens, s, rerates) for c in subset]
         per_state[s] = aggregate_cells(s, results, asm)
-    combined = aggregate_states(per_state, asm)
-    expected = (per_state["TX"].series["claims"][0]
-                + per_state["FL"].series["claims"][0])
-    assert abs(combined.series["claims"][0] - expected) < 1e-6
+
+    # no state weights -> equal-weight average (per-policy scale, not a sum)
+    eq = aggregate_states(per_state, asm)
+    expected_eq = 0.5 * (per_state["TX"].series["claims"][0]
+                         + per_state["FL"].series["claims"][0])
+    assert abs(eq.series["claims"][0] - expected_eq) < 1e-6
+
+    # with NB volume weights -> volume-weighted average
+    a2 = copy.deepcopy(asm)
+    a2.distribution.state_weights = {"TX": 0.75, "FL": 0.25}
+    vw = aggregate_states(per_state, a2)
+    expected_vw = (0.75 * per_state["TX"].series["claims"][0]
+                   + 0.25 * per_state["FL"].series["claims"][0])
+    assert abs(vw.series["claims"][0] - expected_vw) < 1e-6

@@ -14,7 +14,7 @@ from .metrics import discounted_cumulative_lr, irr, npv
 # (lives is per policy issued, the book being normalised to weights summing to 1).
 _DOLLAR_SERIES = (
     "lives",
-    "earned_prem", "ibnr", "nii", "claims", "commission", "premium_tax",
+    "earned_prem", "base_earned", "ibnr", "nii", "claims", "commission", "premium_tax",
     "oper_acq", "marketing", "maintenance", "pretax_income", "tax", "at_income",
     "rbc", "int_on_rbc", "tax_on_int", "ah_cashflow",
 )
@@ -70,12 +70,24 @@ def aggregate_cells(state: str, results: list[CellResult], asm: AssumptionSet) -
 
 
 def aggregate_states(per_state: dict[str, StateResult], asm: AssumptionSet) -> StateResult:
-    """Combine multiple states (equal book weight per state) into one result."""
+    """Combine per-state runs into one **per-policy portfolio** result, weighting each state by
+    its new-business volume share (``distribution.state_weights``, renormalised over the states
+    run); equal weight if no volumes are available. Each state series is already per-1-issued-
+    policy, so a weighted average keeps the combined on a per-policy scale (not an N-state sum)."""
+    sw = asm.distribution.state_weights or {}
+    raw = {s: sw.get(s, 0.0) for s in per_state}
+    total = sum(raw.values())
+    if total > 0:
+        weights = {s: raw[s] / total for s in per_state}
+    else:
+        n = len(per_state) or 1
+        weights = {s: 1.0 / n for s in per_state}
     acc = _blank()
-    for st in per_state.values():
+    for s, st in per_state.items():
+        w = weights[s]
         for k in _DOLLAR_SERIES:
             for i in range(PROJECTION_YEARS):
-                acc[k][i] += st.series[k][i]
+                acc[k][i] += st.series[k][i] * w
     series, metrics = _finalise(acc, asm)
     return StateResult(
         state="(combined)", series=series, cells=[],

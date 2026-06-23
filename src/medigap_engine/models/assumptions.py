@@ -163,6 +163,9 @@ class DistributionAssumptions:
     # states with a Special Enrollment Period (SEP) rule (different UW mix). Editable per-state
     # input; the experience study blends each state's grid toward its like-type average.
     sep_rule_states: list = field(default_factory=list)
+    # cross-state new-business volume shares (state -> weight). Used to combine per-state runs
+    # into a portfolio "(combined)" result; empty => equal weight across the states run.
+    state_weights: dict = field(default_factory=dict)
 
     def _gridmix(self, state, field_name):
         sd = self.by_state.get(state) if state else None

@@ -62,3 +62,13 @@ def test_legacy_assumptions_migrate_pull_forward():
     assert b.pull_forward.duration == 1.75
     assert b.pull_forward.premium_trend == 0.05
     assert abs(b.pull_forward.claims_trend - a.morbidity.trend_by_year[0]) < 1e-12
+
+
+def test_round_trip_state_weights_and_rerates_by_state():
+    import copy
+    a = copy.deepcopy(default_assumptions())
+    a.distribution.state_weights = {"TX": 0.6, "AZ": 0.4}
+    a.rerates.by_state["TX"] = [0.05] + list(a.rerates.specified_rerates[1:])
+    b = assumptions_from_dict(json.loads(json.dumps(assumptions_to_dict(a))))
+    assert b.distribution.state_weights == {"TX": 0.6, "AZ": 0.4}
+    assert b.rerates.by_state["TX"][0] == 0.05

@@ -75,7 +75,6 @@ def derive_morbidity(rows) -> dict:
     by_age: dict = {}                # issue_age -> for selection normalisation
     by_dur: dict = {}
     by_cell_full: dict = {}          # (issue_age,gender,plan,uw,duration) -> for the fit
-    by_cell_attained: dict = {}      # (attained_age,gender,plan,uw) -> for the aging fit
     issue_exp: dict = {}             # issue_age -> exposure, for the reference issue age
     total = acc()
 
@@ -84,16 +83,14 @@ def derive_morbidity(rows) -> dict:
         cl = r["adj_claims"]
         total["claims"] += cl
         total["exp"] += exp
-        attained = r["issue_age"] + r["duration"] - 1
         issue_exp[r["issue_age"]] = issue_exp.get(r["issue_age"], 0.0) + exp
         fkey = (r["issue_age"], r["gender"], r["plan"], r["uw_class"], r["duration"])
-        akey = (attained, r["gender"], r["plan"], r["uw_class"])
         for d, key in ((by_state, r["state"]), (by_gender, r["gender"]),
                        (by_dur, r["duration"]), (by_age, r["issue_age"]),
                        (by_uw_dur, (r["uw_class"], r["duration"])),
                        (by_age_uw_dur, (r["issue_age"], r["uw_class"], r["duration"])),
                        (by_plan_issue, (r["plan"], r["issue_age"])),
-                       (by_cell_full, fkey), (by_cell_attained, akey)):
+                       (by_cell_full, fkey)):
             cell = d.setdefault(key, acc())
             cell["claims"] += cl
             cell["exp"] += exp
@@ -143,25 +140,23 @@ def derive_morbidity(rows) -> dict:
              if sexp else 1.0) or 1.0
     state_factors = {s: round(sfit.get(s, 1.0) / wmean, 6) for s in sexp}
 
-    # ATTAINED-AGE aging slope: exposure-weighted log-linear fit of ln(cc) on attained age
-    # over (attained_age, gender, plan, uw). A single robust morbidity %/yr — used for the
-    # aging curve AND to net aging out of the selection wear-off so they don't double-count.
-    # (Walking a noisy attained-age curve out from one reference age previously caught a local
-    # +11% blip; the slope here is ~1-2%/yr.)
-    att_cc: dict = {}
-    for (att, _g, _p, _u), v in by_cell_attained.items():
-        c = att_cc.setdefault(att, {"claims": 0.0, "exp": 0.0})
-        c["claims"] += v["claims"]
-        c["exp"] += v["exp"]
-    pts = [(a, math.log(c["claims"] / c["exp"]), c["exp"])
-           for a, c in att_cc.items() if c["exp"] > 0 and c["claims"] > 0]
+    # AGING isolated from selection wear-off: the attained-age morbidity slope is the ISSUE-AGE
+    # main effect of a multivariate fit over (issue_age, gender, plan, uw, duration) — i.e. "how
+    # much worse is an x+1-yo than an x-yo, holding duration (selection), uw, plan and gender
+    # fixed". Duration is a separate dimension, so the selection wear-off lives there and is not
+    # double-counted in the aging slope. The same fit gives the isolated gender differential.
+    fobs = [(k, _cc(v["claims"], v["exp"]), v["exp"]) for k, v in by_cell_full.items()
+            if v["exp"] > 0]
+    fit5 = fit_main_effects(fobs, n_dims=5)
+    iss_fac = fit5["factors"][0]   # issue-age effect (duration/uw/plan/gender controlled)
+    apts = [(a, math.log(f), issue_exp.get(a, 1.0)) for a, f in iss_fac.items() if f > 0]
     aging_rate = 0.0
-    if len(pts) >= 2:
-        sw = sum(w for _a, _y, w in pts) or 1.0
-        mx = sum(w * a for a, _y, w in pts) / sw
-        my = sum(w * y for _a, y, w in pts) / sw
-        sxx = sum(w * (a - mx) ** 2 for a, _y, w in pts)
-        sxy = sum(w * (a - mx) * (y - my) for a, y, w in pts)
+    if len(apts) >= 2:
+        sw = sum(w for _a, _y, w in apts) or 1.0
+        mx = sum(w * a for a, _y, w in apts) / sw
+        my = sum(w * y for _a, y, w in apts) / sw
+        sxx = sum(w * (a - mx) ** 2 for a, _y, w in apts)
+        sxy = sum(w * (a - mx) * (y - my) for a, y, w in apts)
         if sxx > 0:
             aging_rate = max(0.0, math.exp(sxy / sxx) - 1.0)
     ref_issue = (round(sum(a * e for a, e in issue_exp.items()) / sum(issue_exp.values()))
@@ -217,10 +212,8 @@ def derive_morbidity(rows) -> dict:
     cc1 = dur_cc.get(1, 0.0)
     aging_by_duration = {d: (cc / cc1 if cc1 else 1.0) for d, cc in dur_cc.items()}
 
-    # gender differential isolated by the multivariate fit (holds age/plan/uw fixed)
-    fobs = [(k, _cc(v["claims"], v["exp"]), v["exp"]) for k, v in by_cell_full.items()
-            if v["exp"] > 0]
-    gender_diff_isolated = differential(fit_main_effects(fobs, n_dims=5)["factors"], 1, "M", "F")
+    # gender differential isolated by the same multivariate fit (holds age/plan/uw/dur fixed)
+    gender_diff_isolated = differential(fit5["factors"], 1, "M", "F")
 
     # AGING curve from the constant attained-age slope (computed above): monotone
     # (1 + aging_rate) ** (duration - 1). The engine applies it as the per-duration aging
@@ -235,6 +228,7 @@ def derive_morbidity(rows) -> dict:
         "gender_diff": round(gender_diff, 6),
         "gender_diff_isolated": round(gender_diff_isolated, 6),
         "state_factors": state_factors,
+        "state_exposure": sexp,
         "selection": selection,
         "selection_exposure": selection_exposure,
         "selection_rows": selection_rows,

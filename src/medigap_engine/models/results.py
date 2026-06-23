@@ -15,6 +15,7 @@ LINE_ITEMS = (
     "rerate_used",        # the rerate % actually applied each duration
     "total_rerate",       # cumulative rerate factor (incl. aging)
     "earned_prem",
+    "base_earned",        # earned premium ex rerate (= base_prem x avg_lives)
     "ibnr",
     "nii",
     "base_cc",

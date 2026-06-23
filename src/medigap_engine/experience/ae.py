@@ -1,9 +1,11 @@
 """Actual-to-expected (A/E) analysis for morbidity.
 
-Expected claim cost per life uses the current best-estimate assumptions (base
-claim cost x class factors x selection x state factor x compounded trend). The
-pricing antiselection load (column P) is excluded — A/E measures experience
-against best estimate, not the priced margin.
+Expected claim cost per life uses the current **best-estimate** assumptions at the
+experience level: base claim cost x class factors x selection x state factor. It excludes
+both the **pull-forward** (which brings the base to the future pricing period) and the
+**projection trend** and the pricing **antiselection** load — A/E measures experience
+against best estimate, so when the assumptions were derived from this same experience the
+ratio averages ~1.
 """
 from __future__ import annotations
 
@@ -13,26 +15,18 @@ from .schema import normalize_claims
 from .claims import exposure_life_years
 
 
-def _trend_factor(asm: AssumptionSet, duration: int) -> float:
-    # base claim cost is already pulled forward to the year-1 level; the projection
-    # trend compounds from year 1->2 onward (year-1 factor is 1.0).
-    cum = 1.0
-    for d in range(2, duration + 1):
-        cum *= 1.0 + L.trend_year(asm, d)
-    return cum
-
-
 def expected_cc_per_life(asm: AssumptionSet, gender: str, issue_age: int,
                          plan: str, uw: str, duration: int, state: str) -> float:
-    # base claim cost is indexed by ISSUE age (matches the engine), not attained age
+    # base claim cost is indexed by ISSUE age (matches the engine), not attained age;
+    # bring_forward=False keeps it at the experience level (no pull-forward, no trend).
     if gender in ("M", "F"):
-        base = L.base_claim_cost(asm, gender, issue_age, plan)
+        base = L.base_claim_cost(asm, gender, issue_age, plan, bring_forward=False)
     else:  # unknown gender -> blend male/female
-        base = 0.5 * (L.base_claim_cost(asm, "M", issue_age, plan)
-                      + L.base_claim_cost(asm, "F", issue_age, plan))
+        base = 0.5 * (L.base_claim_cost(asm, "M", issue_age, plan, bring_forward=False)
+                      + L.base_claim_cost(asm, "F", issue_age, plan, bring_forward=False))
     sel = L.selection_factor(asm, issue_age, uw, duration)
     state_f = asm.morbidity.state_factors.get(state, asm.morbidity.state_factors.get("All", 1.0))
-    return base * sel * _trend_factor(asm, duration) * state_f
+    return base * sel * state_f
 
 
 def actual_to_expected(rows, asm: AssumptionSet, by=("state",)) -> list[dict]:
