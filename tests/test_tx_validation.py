@@ -33,6 +33,8 @@ def _tx():
     # so TX premium/claims still reproduce the Excel 'Aggregate Model' sheet exactly.
     asm.rerates.specified_rerates[1] = 0.15
     asm.rerates.specified_rerates[2] = 0.15
+    # the shipped default pulls claims forward 0.5yr; pin to the workbook's 1.75yr.
+    asm.pull_forward.duration = 1.75
     result, _ = run(build_cells(asm), asm, RunConfig(states=["TX"], solve_rerates=False))
     return result.by_state["TX"]
 

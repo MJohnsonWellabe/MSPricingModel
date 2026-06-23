@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Optional
+from typing import Callable, Optional
 
 from ..models.assumptions import AssumptionSet
 from ..models.cell import PricingCell
@@ -26,8 +26,14 @@ def normalize_weights(cells: list[PricingCell]) -> list[PricingCell]:
 def _project_state(
     state: str, cells: list[PricingCell], asm: AssumptionSet,
     sens, rerates: list[float], formulas: Optional[FormulaSet],
+    progress: Optional[Callable[[int, int], None]] = None,
 ) -> StateResult:
-    results = [project_cell(c, asm, sens, state, rerates, formulas) for c in cells]
+    results = []
+    n = len(cells)
+    for i, c in enumerate(cells):
+        results.append(project_cell(c, asm, sens, state, rerates, formulas))
+        if progress and (i % 8 == 0 or i == n - 1):
+            progress(i + 1, n)
     return aggregate_cells(state, results, asm)
 
 
@@ -43,13 +49,14 @@ def _state_cells(state: str, cells: list[PricingCell], asm: AssumptionSet) -> li
 def run_state(
     state: str, cells: list[PricingCell], asm: AssumptionSet, config: RunConfig,
     formulas: Optional[FormulaSet] = None,
+    progress: Optional[Callable[[int, int], None]] = None,
 ) -> tuple[StateResult, dict]:
     """Price one state, solving rerates if configured."""
     sens = config.sensitivities
     cells = _state_cells(state, cells, asm)
 
     def projector(rerates: list[float]) -> StateResult:
-        return _project_state(state, cells, asm, sens, rerates, formulas)
+        return _project_state(state, cells, asm, sens, rerates, formulas, progress)
 
     solve = config.solve_rerates and asm.rerates.solve
     if solve:
@@ -69,16 +76,23 @@ def run_state(
 def run(
     cells: list[PricingCell], asm: AssumptionSet, config: RunConfig,
     formulas: Optional[FormulaSet] = None,
+    progress: Optional[Callable[[str, int, int, int, int], None]] = None,
 ) -> tuple[RunResult, dict[str, dict]]:
     """Run the model across all configured states.
 
     Returns the :class:`RunResult` and a per-state dict of solver diagnostics.
+
+    ``progress(state, cell_done, cell_total, state_idx, n_states)`` is called as each state's
+    cells are projected, so a UI can render live per-cell progress.
     """
     cells = normalize_weights(cells)
     by_state: dict[str, StateResult] = {}
     diagnostics: dict[str, dict] = {}
-    for state in config.states:
-        st, info = run_state(state, cells, asm, config, formulas)
+    n_states = len(config.states)
+    for idx, state in enumerate(config.states):
+        cb = (lambda done, total, _s=state, _i=idx: progress(_s, done, total, _i, n_states)) \
+            if progress else None
+        st, info = run_state(state, cells, asm, config, formulas, progress=cb)
         by_state[state] = st
         diagnostics[state] = info
 

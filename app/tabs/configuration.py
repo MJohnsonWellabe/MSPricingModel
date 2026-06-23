@@ -2,42 +2,98 @@
 and the Run button."""
 from __future__ import annotations
 
+import math
+
 import streamlit as st
 
 from app.state import get_assumptions, get_cells, get_formulas, solve_toggle
-from medigap_engine.engine.aggregate import aggregate_states
-from medigap_engine.engine.run import normalize_weights, run_state
+from medigap_engine.engine.aggregate import aggregate_cells, aggregate_states
+from medigap_engine.engine.forward_solver import solve_rerates
+from medigap_engine.engine.project import project_cell
+from medigap_engine.engine.run import _state_cells, normalize_weights, run_state
 from medigap_engine.io.defaults import available_states
 from medigap_engine.models.config import RunConfig
 from medigap_engine.models.results import RunResult
 from medigap_engine.models.sensitivities import SensitivitySet
 
 
+def _store_state(job: dict, asm, state: str, res, info: dict) -> None:
+    """Attach a finished state result + diagnostics to the job (mirrors run_state's tail)."""
+    floor = asm.rerates.in_year_lr_floor
+    info["in_year_lr_floor_breaches"] = [
+        i + 1 for i, lr in enumerate(res.series["in_year_lr"]) if 0 < lr < floor - 1e-6]
+    info.setdefault("achieved_lifetime_lr", res.lifetime_lr)
+    job["by_state"][state] = res
+    job["diag"][state] = info
+
+
+def _finalize(job: dict, asm) -> None:
+    by_state = job["by_state"]
+    combined = (aggregate_states(by_state, asm) if len(by_state) > 1
+                else next(iter(by_state.values()), None))
+    st.session_state.run_result = RunResult(by_state=by_state, all_states=combined)
+    st.session_state.diagnostics = job["diag"]
+    st.session_state.calc_job = None
+    st.session_state.active_tab = "Output"
+    st.rerun()
+
+
 def _process_run_job() -> None:
-    """Advance the per-state run job by one state per Streamlit rerun, repainting the
-    progress bar between states. When the last state finishes, store the result and
-    switch the active tab to Output."""
+    """Advance the run job one chunk per Streamlit rerun so the progress bar repaints
+    (a single synchronous loop never repaints under stlite). A single-state run (e.g. the
+    combined 'All' book) is chunked by cell batches for a live cell-level bar; multi-state
+    runs advance one state per rerun. On completion, store the result and open Output."""
     job = st.session_state.get("calc_job")
     if not job:
         return
     states = job["states"]
-    total = len(states)
-    i = job["i"]
-    st.progress(i / total, text=f"Pricing {states[i]} ({i + 1}/{total})…")
+    nst = len(states)
     asm = get_assumptions()
-    cells = normalize_weights(get_cells())
-    st_res, info = run_state(states[i], cells, asm, job["config"], get_formulas())
-    job["by_state"][states[i]] = st_res
-    job["diag"][states[i]] = info
-    job["i"] = i + 1
-    if job["i"] < total:
+    if job["si"] >= nst:
+        _finalize(job, asm)
+        return
+    state = states[job["si"]]
+    cells_all = normalize_weights(get_cells())
+
+    if nst > 1:
+        # multi-state: one state per rerun (the per-state tick already shows movement)
+        st.progress(job["si"] / nst, text=f"Pricing {state} ({job['si'] + 1}/{nst})…")
+        res, info = run_state(state, cells_all, asm, job["config"], get_formulas())
+        job["by_state"][state] = res
+        job["diag"][state] = info
+        job["si"] += 1
         st.rerun()
-    combined = (aggregate_states(job["by_state"], asm) if total > 1
-                else next(iter(job["by_state"].values()), None))
-    st.session_state.run_result = RunResult(by_state=job["by_state"], all_states=combined)
-    st.session_state.diagnostics = job["diag"]
-    st.session_state.calc_job = None
-    st.session_state.active_tab = "Output"
+
+    # single state: solve once, then project cells in batches with a live bar
+    cfg = job["config"]
+    work = job.get("work")
+    if work is None:
+        scells = _state_cells(state, cells_all, asm)
+        if cfg.solve_rerates and asm.rerates.solve:
+            rerates, info = solve_rerates(scells, asm, cfg.sensitivities, state,
+                                          formulas=get_formulas())
+        else:
+            rerates = list(asm.rerates.rerates_for(state))
+            info = {"status": "specified", "rerates": rerates}
+        job["work"] = {"cells": scells, "rerates": rerates, "info": info, "results": [], "ci": 0}
+        st.progress(0.02, text=f"Solving rerates for {state}…")
+        st.rerun()
+
+    ncells = len(work["cells"])
+    batch_size = max(24, math.ceil(ncells / 18))
+    ci = work["ci"]
+    for c in work["cells"][ci:ci + batch_size]:
+        work["results"].append(
+            project_cell(c, asm, cfg.sensitivities, state, work["rerates"], get_formulas()))
+    work["ci"] = min(ci + batch_size, ncells)
+    st.progress(min(0.99, work["ci"] / ncells),
+                text=f"Pricing {state} — cell {work['ci']}/{ncells}…")
+    if work["ci"] < ncells:
+        st.rerun()
+    res = aggregate_cells(state, work["results"], asm)
+    _store_state(job, asm, state, res, work["info"])
+    job["si"] += 1
+    job["work"] = None
     st.rerun()
 
 
@@ -109,13 +165,13 @@ def render() -> None:
     st.divider()
     if st.button("Run model", type="primary", key="cfg_run"):
         st.session_state.calc_job = {
-            "states": list(selected), "i": 0, "by_state": {}, "diag": {},
+            "states": list(selected), "si": 0, "work": None, "by_state": {}, "diag": {},
             "config": st.session_state.run_config,
         }
         st.session_state.run_result = None
         st.rerun()
-    # Process one state per rerun so the progress bar repaints beneath the button
-    # (a single synchronous loop never repaints under stlite). On completion, jump to Output.
+    # Advance one chunk per rerun so the progress bar repaints (a single synchronous loop
+    # never repaints under stlite). On completion, jump to Output.
     _process_run_job()
     st.caption(f"Runs {len(selected)} state(s) here with a progress bar, then opens the "
                "Output tab automatically.")

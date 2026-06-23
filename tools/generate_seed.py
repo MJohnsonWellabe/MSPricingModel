@@ -96,7 +96,7 @@ def build_assumptions(A) -> dict:
     return {
         "schema_version": "2",
         "pull_forward": {
-            "duration": 1.75,
+            "duration": 0.5,
             "claims_trend": trend_by_year[0],
             # the Input premium is already the pricing rate -> no premium pull-forward
             "premium_trend": 0.0,
@@ -330,6 +330,23 @@ def main(path: str) -> None:
     if isinstance(z1, (int, float)):
         assumptions["morbidity"]["state_factors"]["TX"] = round(float(z1), 8)
         assumptions["morbidity"]["state_factors"].setdefault("All", 1.0)
+
+    # Make the antiselective lapse load an explicit UW-only assumption (lambda 0.5). The
+    # workbook's lapse already embeds the realised antiselection, so back it out of the UW
+    # relativity here: at runtime the engine re-applies 1 + 0.5*(rate_d - trend_d) to UW lapses
+    # only, and uw_lapse_rel/load reproduces the workbook's UW lapse exactly (TX still ties).
+    # Uses the workbook's own rerate schedule (col F, before the 20% default override below).
+    spec = assumptions["rerates"]["specified_rerates"]
+    trend = assumptions["morbidity"]["trend_by_year"]
+    rel = assumptions["termination"]["uw_lapse_rel"]
+    rel_new = []
+    for i in range(len(rel)):
+        rate_d = spec[i] if i < len(spec) else spec[-1]
+        trend_d = trend[i] if i < len(trend) else trend[-1]
+        load = 1.0 + 0.5 * (rate_d - trend_d)          # rate_d=rerate that duration, trend_d=trend
+        rel_new.append(round(rel[i] / load, 6))
+    assumptions["termination"]["uw_lapse_rel"] = rel_new
+    assumptions["rerates"]["antiselection_lambda_lapse"] = 0.5
 
     # default the duration-2 and duration-3 rerates to 20% (pricing default; the workbook's
     # own 15% schedule is pinned in the TX validation test so it still ties to Excel exactly).

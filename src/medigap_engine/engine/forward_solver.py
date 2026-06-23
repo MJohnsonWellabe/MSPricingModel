@@ -45,12 +45,14 @@ def precompute(cells, asm: AssumptionSet, state: str) -> dict:
     aging_h = np.zeros((nc, n))
     comm_rate = np.zeros((nc, n))
     gi = np.zeros(nc, dtype=bool)
+    uw = np.zeros(nc, dtype=bool)
     planf = np.zeros(nc, dtype=bool)
     age80 = np.zeros(nc, dtype=bool)
     for ci, c in enumerate(cells):
         k = c.key
         cls = L.claim_class_factors(asm, k.uw_class, k.preferred, k.hhd, state)
         gi[ci] = k.uw_class == "GI"
+        uw[ci] = k.uw_class == "UW"
         planf[ci] = k.plan == "F"
         age80[ci] = k.issue_age >= 80
         # claims base cost is by ISSUE age (constant across duration), matching the
@@ -74,7 +76,7 @@ def precompute(cells, asm: AssumptionSet, state: str) -> dict:
     return dict(
         n=n, weight=weight, base_prem=base_prem, lapse_base=lapse_base, mort=mort,
         claim_base=claim_base, selection=selection, aging_h=aging_h, trend=trend,
-        aging_p=aging_p, state_cc=state_cc, comm_rate=comm_rate, gi=gi,
+        aging_p=aging_p, state_cc=state_cc, comm_rate=comm_rate, gi=gi, uw=uw,
         age_mult=age_mult, planf_offset=planf_offset,
         dur2=asm.termination.dur2_scaling, dur3=asm.termination.dur3plus_scaling,
         lam_lapse=asm.rerates.antiselection_lambda_lapse,
@@ -99,7 +101,7 @@ def _make_ns(P, asm, sens, i, rate, carry, extra=None):
         "base_prem": P["base_prem"], "base_cc": P["claim_base"][:, i],
         "selection": P["selection"][:, i], "lapse_base": P["lapse_base"][:, i],
         "mort_d": P["mort"][:, i], "aging_h": P["aging_h"][:, i],
-        "comm_rate": P["comm_rate"][:, i], "is_gi": P["gi"],
+        "comm_rate": P["comm_rate"][:, i], "is_gi": P["gi"], "is_uw": P["uw"],
         "comm_age_mult": P["age_mult"], "planf_offset_d": P["planf_offset"],
         "morbidity_scale": sens.morbidity_scale,
         "termination_scale": sens.termination_scale,

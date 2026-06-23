@@ -125,6 +125,12 @@ def _morbidity(ws, a: AssumptionSet) -> None:
                   for i, d in enumerate(_durations(len(m.trend_by_year)))])
     row = _table(ws, row, "State morbidity factors", ["State", "Factor"],
                  sorted(m.state_factors.items()))
+    if m.preferred_factors or m.hhd_factors:
+        levels = sorted(set(m.preferred_factors) | set(m.hhd_factors))
+        row = _table(ws, row, "Raw preferred / HHD claim factors by level",
+                     ["Level", "Preferred factor", "HHD factor"],
+                     [[lvl, m.preferred_factors.get(lvl), m.hhd_factors.get(lvl)]
+                      for lvl in levels])
     if m.selection_factors:
         keys = ["duration", "issue_age", "uw", "factor"]
         _table(ws, row, "UW selection factors", keys,
@@ -148,7 +154,7 @@ def _premium(ws, a: AssumptionSet) -> None:
                  sorted(p.state_factor.items()))
     if p.cell_premiums:
         states = sorted({s for m in p.cell_premiums.values() for s in m})
-        rows = [[label, *[round(m[s], 2) if s in m else None for s in states]]
+        rows = [[label, *[m[s] if s in m else None for s in states]]   # full precision: exact
                 for label, m in sorted(p.cell_premiums.items())]
         _table(ws, row, "Per-cell premiums — exact rates by state (override the factor model)",
                ["Cell", *states], rows)
@@ -214,10 +220,19 @@ def _distribution(ws, a: AssumptionSet) -> None:
             for pl in sorted(joint):
                 for age in ages:
                     cell = joint.get(pl, {}).get(str(age), {})
-                    rows.append([s, pl, age, *[round(cell.get(u, 0.0), 6) for u in uws]])
+                    rows.append([s, pl, age, *[cell.get(u, 0.0) for u in uws]])  # exact weights
         if rows:
-            _table(ws, row, "Per-state mix-of-business grid (joint plan x issue age x UW)",
-                   ["State", "Plan", "Issue age", *uws], rows)
+            row = _table(ws, row, "Per-state mix-of-business grid (joint plan x issue age x UW)",
+                         ["State", "Plan", "Issue age", *uws], rows)
+        # per-state gender / preferred / HHD marginals (grid_weight multiplies these in)
+        marg = []
+        for s in sorted(d.by_state):
+            for dim in ("gender", "preferred", "hhd"):
+                for lvl, w in sorted(d.by_state[s].get(dim, {}).items()):
+                    marg.append([s, dim, str(lvl), float(w)])   # exact weights
+        if marg:
+            _table(ws, row, "Per-state gender / preferred / HHD marginals",
+                   ["State", "Dimension", "Level", "Weight"], marg)
 
 
 def _termination(ws, a: AssumptionSet) -> None:

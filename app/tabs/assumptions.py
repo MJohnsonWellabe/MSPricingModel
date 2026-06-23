@@ -240,43 +240,41 @@ def _rerates(asm) -> None:
 
     states = [s for s in available_states() if s != "All"]
 
+    shared = list(r.specified_rerates)
     st.markdown("**Per-state rerate overrides** — grid of duration (rows) × state (columns)")
-    st.caption("Select the states to override; each starts from the shared schedule above. "
-               "Edit a column to set that state's rerate by duration; deselect to remove the "
-               "override. States without an override use the shared schedule.")
-    rr_states = st.multiselect("States with a rerate override", states,
-                               default=sorted(r.by_state), key="rr_ovr_states")
-    for s in rr_states:
-        r.by_state.setdefault(s, list(r.specified_rerates))
-    for s in [s for s in r.by_state if s not in rr_states]:
-        del r.by_state[s]
-    if rr_states:
-        gdf = pd.DataFrame({s: r.by_state[s] for s in rr_states},
-                           index=range(1, PROJECTION_YEARS + 1))
-        ged = st.data_editor(gdf, use_container_width=True, height=320, key="rr_grid",
-                             column_config={s: st.column_config.NumberColumn(format="%.4f")
-                                            for s in rr_states})
-        for s in rr_states:
-            if s in ged:
-                r.by_state[s] = ged[s].tolist()
+    st.caption("Every state starts at the shared schedule above. Edit a column to override that "
+               "state's rerate by duration; only states you actually change are stored as "
+               "overrides (the rest keep using the shared schedule).")
+    rgrid = {s: list(r.by_state.get(s, shared)) for s in states}
+    gdf = pd.DataFrame(rgrid, index=range(1, PROJECTION_YEARS + 1))
+    ged = st.data_editor(gdf, use_container_width=True, height=320, key="rr_grid",
+                         column_config={s: st.column_config.NumberColumn(format="%.4f")
+                                        for s in states})
+    for s in states:
+        col = ged[s].tolist() if s in ged else shared
+        if [round(x, 8) for x in col] != [round(x, 8) for x in shared]:
+            r.by_state[s] = col
+        else:
+            r.by_state.pop(s, None)
 
+    shared_tgt = float(r.target_lifetime_lr)
     st.markdown("**Per-state target lifetime loss ratio** — overrides the shared target above")
-    st.caption("The rerate solver targets this lifetime LR for the state; unlisted states use "
-               "the shared target.")
-    tgt_states = st.multiselect("States with a target-LR override", states,
-                                default=sorted(r.target_lifetime_lr_by_state), key="rr_tgt_states")
-    for s in tgt_states:
-        r.target_lifetime_lr_by_state.setdefault(s, float(r.target_lifetime_lr))
-    for s in [s for s in r.target_lifetime_lr_by_state if s not in tgt_states]:
-        del r.target_lifetime_lr_by_state[s]
-    if tgt_states:
-        tdf = pd.DataFrame({"Target lifetime LR": [r.target_lifetime_lr_by_state[s] for s in tgt_states]},
-                           index=tgt_states)
-        ted = st.data_editor(tdf, use_container_width=True, key="rr_tgt_grid",
-                             column_config={"Target lifetime LR":
-                                            st.column_config.NumberColumn(format="%.3f")})
-        for s in tgt_states:
-            r.target_lifetime_lr_by_state[s] = float(ted.loc[s, "Target lifetime LR"])
+    st.caption("Every state starts at the shared target; the rerate solver targets this "
+               "lifetime LR for the state. Only states you change from the shared value are "
+               "stored as overrides.")
+    tdf = pd.DataFrame(
+        {"Target lifetime LR": [float(r.target_lifetime_lr_by_state.get(s, shared_tgt))
+                                for s in states]},
+        index=states)
+    ted = st.data_editor(tdf, use_container_width=True, height=320, key="rr_tgt_grid",
+                         column_config={"Target lifetime LR":
+                                        st.column_config.NumberColumn(format="%.3f")})
+    for s in states:
+        val = float(ted.loc[s, "Target lifetime LR"])
+        if round(val, 8) != round(shared_tgt, 8):
+            r.target_lifetime_lr_by_state[s] = val
+        else:
+            r.target_lifetime_lr_by_state.pop(s, None)
 
 
 def _premium(asm) -> None:

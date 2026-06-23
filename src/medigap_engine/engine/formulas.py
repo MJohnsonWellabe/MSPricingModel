@@ -115,8 +115,8 @@ def eval_steps(compiled: list, ns: dict) -> dict:
 _DEFAULT_STEPS = [
     # Inforce ----------------------------------------------------------------
     ("lapse_antisel", "Inforce",
-     "1 + lam_lapse * (rate_d - trend_d) * antiselective_lapse",
-     "Rerate-driven antiselective lapse load."),
+     "1 + lam_lapse * (rate_d - trend_d) * antiselective_lapse * is_uw",
+     "Rerate-driven antiselective lapse load (UW class only)."),
     ("lapse_d", "Inforce",
      "clamp(lapse_base * termination_scale * lapse_antisel, 0.0, 1.0)",
      "Lapse rate after scale and antiselection, clamped to [0,1]."),
@@ -232,7 +232,7 @@ def sample_namespace() -> dict:
         "aging_p": 0.01, "state_cc": 1.0,
         "base_prem": 2000.0, "base_cc": 1500.0, "selection": 1.0,
         "lapse_base": 0.08, "mort_d": 0.02, "aging_h": 0.01,
-        "comm_rate": 0.05, "is_gi": False, "comm_age_mult": 1.0,
+        "comm_rate": 0.05, "is_gi": False, "is_uw": True, "comm_age_mult": 1.0,
         "planf_offset_d": 0.0, "yr1_prem": 2000.0,
         "lives_prev": 0.8, "G_prev": 1.1, "H_prev": 1.05, "O_prev": 1.07,
         "P_prev": 1.0, "ibnr_prev": 10.0, "rbc_prev": 50.0,

@@ -43,7 +43,7 @@ def _table(rows, title):
 
 def _ncols(header) -> int:
     n = 0
-    for c in header:
+    for c in header or ():
         if c is None:
             break
         n += 1
@@ -96,6 +96,10 @@ def _morbidity(rows) -> dict:
         {"duration": int(r[0]), "issue_age": int(r[1]), "uw": str(r[2]), "factor": float(r[3])}
         for r in sel]
 
+    _h, rf = _table(rows, "Raw preferred / HHD claim factors by level")
+    preferred_factors = {str(r[0]): float(r[1]) for r in rf if r[1] is not None}
+    hhd_factors = {str(r[0]): float(r[2]) for r in rf if len(r) > 2 and r[2] is not None}
+
     return {
         "ages": ages, "plans": plans, "base_cc": base_cc,
         "gender_cc_diff": float(_kv(rows, "Male claim cost higher than female by")),
@@ -105,6 +109,8 @@ def _morbidity(rows) -> dict:
         "selection_factors": selection_factors,
         "cc_aging_by_duration": cc_aging,
         "trend_by_year": trend_by_year,
+        "preferred_factors": preferred_factors,
+        "hhd_factors": hhd_factors,
     }
 
 
@@ -113,6 +119,14 @@ def _premium(rows) -> dict:
     _h, plan = _table(rows, "Plan relativities (G = 1.00)")
     _h, uw = _table(rows, "UW relativities")
     _h, state = _table(rows, "State premium factors (raw)")
+    cp_header, cp = _table(
+        rows, "Per-cell premiums — exact rates by state (override the factor model)")
+    cell_premiums: dict[str, dict[str, float]] = {}
+    cp_states = [str(c) for c in (cp_header or ())[1:_ncols(cp_header)]]
+    for r in cp:
+        label = str(r[0])
+        cell_premiums[label] = {s: float(r[1 + j]) for j, s in enumerate(cp_states)
+                                if r[1 + j] is not None}
     return {
         "base_by_issue_age": {int(r[0]): float(r[1]) for r in base},
         "plan_rel": {str(r[0]): float(r[1]) for r in plan},
@@ -121,13 +135,20 @@ def _premium(rows) -> dict:
         "preferred_diff": float(_kv(rows, "Non-preferred premium higher by")),
         "hhd_diff": float(_kv(rows, "Non-HHD premium higher by")),
         "state_factor": _factor_dict(state),
+        "cell_premiums": cell_premiums,
     }
 
 
 def _rerates(rows) -> dict:
-    _h, spec = _table(rows, "Specified rerates by duration")
+    _h, spec = _table(rows, "Specified rerates by duration (shared / national)")
     _h, aging = _table(rows, "Aging rerate by attained age (column H)")
     irr = _kv(rows, "Target IRR (reported)")
+    bs_header, bs = _table(rows, "Per-state rerate overrides by duration")
+    bs_states = [str(c) for c in (bs_header or ())[1:_ncols(bs_header)]]
+    by_state = {s: [float(r[1 + j]) for r in bs] for j, s in enumerate(bs_states)
+                if all(r[1 + j] is not None for r in bs)}
+    _h, tgt = _table(rows, "Per-state target lifetime LR overrides")
+    target_by_state = {str(r[0]): float(r[1]) for r in tgt if r[0] is not None}
     return {
         "solve": bool(_kv(rows, "Solve to target lifetime LR")),
         "specified_rerates": [float(r[1]) for r in spec],
@@ -141,6 +162,8 @@ def _rerates(rows) -> dict:
         "consecutive_b": int(_kv(rows, "Consecutive rule: b (years)")),
         "antiselection_lambda_claims": float(_kv(rows, "Antiselection lambda — claims")),
         "antiselection_lambda_lapse": float(_kv(rows, "Antiselection lambda — lapse")),
+        "by_state": by_state,
+        "target_lifetime_lr_by_state": target_by_state,
     }
 
 
@@ -165,11 +188,33 @@ def _distribution(rows) -> dict:
             age = str(int(dr[0]))
             grid[age] = {u: float(dr[1 + j]) for j, u in enumerate(uws)}
         joint[pl] = grid
+    # per-state mix-of-business: joint grid (state, plan, issue age, *uw) ...
+    bsj_header, bsj = _table(rows,
+                             "Per-state mix-of-business grid (joint plan x issue age x UW)")
+    bs_uws = [str(c) for c in (bsj_header or ())[3:_ncols(bsj_header)]]
+    by_state: dict[str, dict] = {}
+    for r in bsj:
+        s, pl, age = str(r[0]), str(r[1]), str(int(r[2]))
+        cell = {u: float(r[3 + j]) for j, u in enumerate(bs_uws)}
+        by_state.setdefault(s, {}).setdefault("joint", {}).setdefault(pl, {})[age] = cell
+    # ... and the per-state gender / preferred / HHD marginals layered on top
+    _h, marg = _table(rows, "Per-state gender / preferred / HHD marginals")
+    for r in marg:
+        s, dim, lvl, w = str(r[0]), str(r[1]), str(r[2]), float(r[3])
+        by_state.setdefault(s, {}).setdefault(dim, {})[lvl] = w
+
+    _h, weights = _table(rows, "New-business volume weights by state (combine weighting)")
+    state_weights = {str(r[0]): float(r[1]) for r in weights if r[0] is not None}
+    _h, sep = _table(rows, "Special Enrollment Period (SEP) states")
+    sep_states = [str(r[0]) for r in sep if r[0] is not None]
     return {
         "joint": joint,
         "gender": _marginal(rows, "Gender"),
         "preferred": _marginal(rows, "Preferred"),
         "hhd": _marginal(rows, "HHD"),
+        "by_state": by_state,
+        "state_weights": state_weights,
+        "sep_rule_states": sep_states,
     }
 
 

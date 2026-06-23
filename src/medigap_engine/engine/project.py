@@ -62,6 +62,7 @@ def project_cell(
     const = {
         "base_prem": base_prem, "state_cc": state_cc_factor, "yr1_prem": yr1_prem,
         "is_gi": key.uw_class == "GI",
+        "is_uw": key.uw_class == "UW",
         "comm_age_mult": 0.5 if (asm.commission.age80_halving and key.issue_age >= 80) else 1.0,
         "planf_offset_d": asm.commission.plan_f_offset if key.plan == "F" else 0.0,
         "gi_flat": asm.commission.gi_flat,

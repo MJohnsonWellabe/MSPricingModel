@@ -5,7 +5,7 @@ from medigap_engine.engine.formulas import (
     validate_formula_set,
 )
 from medigap_engine.engine.project import project_cell
-from medigap_engine.models.formulas import FormulaSet, FormulaStep
+from medigap_engine.models.formulas import FormulaStep
 
 
 def test_validate_rejects_unsafe():

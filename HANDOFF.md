@@ -15,8 +15,8 @@ formulas as reference* — not a literal cell-for-cell copy. The engine projects
 Repo: `MJohnsonWellabe/MSPricingModel` (public). Owner email: mattjohnson912@gmail.com.
 
 ## 2. Current status
-- All 8 build iterations are shipped, tested, and deployed. Working tree clean.
-- `python -m pytest -q` → **68 passed**.
+- All build iterations (8 + post-build follow-ups 9–10) are shipped, tested, and deployed.
+- `python -m pytest -q` → **105 passed**.
 - GitHub Actions `test-and-deploy` is green; the site runs the whole model client-side.
 - Each iteration was pushed to the feature branch **and** `main` (push-to-main was explicitly
   authorised for this engagement; confirm before assuming it continues).
@@ -29,8 +29,12 @@ Repo: `MJohnsonWellabe/MSPricingModel` (public). Owner email: mattjohnson912@gma
 - **Deterministic**: results depend only on assumptions + sensitivities + run config + formulas.
   Pricing cells are *derived* from the distribution assumptions, so they need not be stored.
 - **Pyodide constraints**: no scipy / numpy_financial (IRR/NPV are hand-rolled in
-  `engine/metrics.py`); single-threaded, so long loops are **rerun-chunked** (one state per
-  `st.rerun()`) to keep the progress bar repainting.
+  `engine/metrics.py`); single-threaded, so long loops are **rerun-chunked** to keep the
+  progress bar repainting (a synchronous loop never repaints under stlite). Multi-state runs
+  chunk **one state per `st.rerun()`**; a single-state run (e.g. the combined "All" book, 432
+  cells) chunks **by cell batches** so the bar moves cell-by-cell. `engine.run.run()` also
+  accepts a `progress(state, cell_done, cell_total, state_idx, n_states)` callback for non-UI
+  callers; the UI drives the chunking itself in `configuration._process_run_job`.
 
 ## 4. Repository layout
 ```
@@ -263,14 +267,17 @@ Experience Study (sales→distribution/premium, claims→morbidity, **editable s
 Adopt, A/E) · Assumptions (sub-tabs: **Pull forward**, Distribution, Premium, Rerates, Termination,
 Morbidity, Commission, Economic) · **Formulas** (grouped editable expressions + Validate + Reset) ·
 Calculation (rerun-chunked run + raw projection inspector) · Output (summary, income statement,
-trend & rerates) · Sensitivity (stochastic IRR table + altair histogram) · Documentation.
+**in-year** ramp drivers, trend & rerates) · **Granular** (drill a state by plan / issue age /
+UW class; subgroups renormalised per-policy) · Sensitivity (stochastic IRR table + altair
+histogram) · Documentation.
 **Every interactive widget has an explicit `key=`** — Streamlit renders all tabs each run, so
 duplicate auto-IDs raise `StreamlitDuplicateElementId`; keep new widgets keyed.
 
 ## 10. Conventions & constraints (carry these forward)
 - **Always update the docs/`.md` files (this HANDOFF, `README.md`, the in-app Documentation tab) on
   every change** — owner's standing instruction.
-- Develop on `claude/word-document-prompt-plan-5o6lus`; create it if missing. Pushing to `main` was
+- Develop on the engagement's current feature branch (latest: `claude/export-assumptions-excel-jwdyd3`);
+  create it if missing. Pushing to `main` was
   explicitly authorised this engagement (owner: "always push to main") — re-confirm before relying on it.
 - End commit messages with the harness-provided `Co-Authored-By:` and `Claude-Session:` footers.
 - Do **not** put any model identifier in commits/PRs/code/artifacts.
@@ -318,6 +325,26 @@ duplicate auto-IDs raise `StreamlitDuplicateElementId`; keep new widgets keyed.
 8. **Editable Formula Database**; **Pull-forward** refactor + tab reorder; **full model
    export/import**; editable experience-study differentials. (+ follow-ups: keyed all widgets to
    fix `StreamlitDuplicateElementId`.)
+9. Per-state assumptions: **per-state rerate grid** + **per-state target lifetime-LR** (solver
+   threads `rerates.target_for(state)`), **editable per-state lapse factors**; **Granular**
+   output tab (drill a state by plan / issue age / UW class); experience-study distribution
+   **marginals** shown; config **"run all states individually"** + selection persists across nav.
+10. **Default rerate durs 2–3 = 20%**; **claims pull-forward default 0.5yr**; **UW-only
+   antiselective lapse, λ=0.5** — made explicit and rerate-responsive by backing the embedded
+   antiselection out of the workbook's UW lapse relativity in `generate_seed` (decomposition
+   recovers a clean 1.5 UW relativity; TX still ties exactly). Per-state override grids now
+   **pre-list every state at the national default** (only changed states are stored). Output
+   driver rows are **in-year** (not cumulative). **Excel assumptions round-trip fixed**: the
+   hand parser (`io/excel_import.py`) + exporter now carry per-cell premiums, per-state
+   distribution grids **and per-state marginals**, state weights, SEP states, rerate overrides /
+   per-state targets, and raw preferred/HHD claim factors at full precision — export→import now
+   reproduces priced results exactly (matches the JSON path). See `tests/test_excel_round_trip.py`.
+
+   **TX invariants (key):** `tests/test_tx_validation.py` pins the workbook's own values that the
+   new pricing defaults diverge from — rerate durs 2–3 → 0.15, pull-forward → 1.75 — so TX keeps
+   tying to the Excel 'Aggregate Model'. The UW-only antiselective-lapse change needs **no** pin
+   (the `generate_seed` base-lapse back-out is self-cancelling for TX). If you change the rerate
+   default, pull-forward default, or the lapse decomposition, re-run that test first.
 
 ## 14. Deeper context
 - In-app **Documentation** tab — full methodology/formula reference.

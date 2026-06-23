@@ -172,26 +172,35 @@ def render() -> None:
     pbase = prem_pmpy[0] or 1.0
     demo = [(prem_pmpy[i] / pbase) / tre_rel[i] if tre_rel[i] else 1.0
             for i in range(PROJECTION_YEARS)]
-    st.markdown("**Claims & premium PMPY, and the drivers of the duration ramp**")
+    def _in_year(cum):
+        """Per-duration % change implied by a cumulative-vs-year-1 series."""
+        out = []
+        for i in range(len(cum)):
+            prev = cum[i - 1] if i > 0 else 1.0
+            out.append(cum[i] / prev - 1.0 if prev else 0.0)
+        return out
+
+    st.markdown("**Claims & premium PMPY, and the in-year drivers of the duration ramp**")
     drv = pd.DataFrame({
         "Claims PMPY": claims_pmpy,
-        "— Trend (cum ×)": trend_cum,
-        "— Aging (cum ×)": aging_cum,
-        "— Selection wear-off + antisel + mix (×)": resid,
+        "— Trend (in-yr %)": _in_year(trend_cum),
+        "— Aging (in-yr %)": _in_year(aging_cum),
+        "— Selection wear-off + antisel + mix (in-yr %)": _in_year(resid),
         "Premium PMPY": prem_pmpy,
-        "— Rerate (cum ×)": rer_rel,
-        "— Aging-rerate (cum ×)": agr_rel,
-        "— Demographic mix shift (×)": demo,
+        "— Rerate (in-yr %)": _in_year(rer_cum),
+        "— Aging-rerate (in-yr %)": _in_year(agr_rel),
+        "— Demographic mix shift (in-yr %)": _in_year(demo),
     }).T
     drv.columns = [f"Yr {i}" for i in range(1, PROJECTION_YEARS + 1)]
-    st.table(drv.style.format("{:,.3f}"))
+    # PMPY rows are dollars; driver rows are small in-year fractions — format by magnitude.
+    st.table(drv.style.format(lambda v: f"{v:,.0f}" if abs(v) >= 5 else f"{v:+.2%}"))
     st.caption(
         "PMPY divides each year's claims/premium by member-years (average lives = "
-        "(prior + current)/2). Each set of driver rows is cumulative vs year 1 and multiplies "
-        "back to its PMPY ramp. **Claims:** Trend (forward projection Oₓ) × Aging (per-duration "
-        "morbidity in Pₓ) × residual (UW selection wear-off + antiselective lapsation + mix). "
-        "**Premium:** Rerate (cumulative rate actions) × Aging-rerate (attained-age premium "
-        "scaling Hₓ) × Demographic mix shift (the surviving book's changing average premium)."
+        "(prior + current)/2). Driver rows are the **in-year** (per-duration) change, not "
+        "cumulative. **Claims:** Trend (forward projection Oₓ) + Aging (per-duration morbidity "
+        "in Pₓ) + residual (UW selection wear-off + antiselective lapsation + mix). "
+        "**Premium:** Rerate (that year's rate action) + Aging-rerate (attained-age premium "
+        "scaling Hₓ) + Demographic mix shift (the surviving book's changing average premium)."
     )
 
     st.line_chart(pd.DataFrame({

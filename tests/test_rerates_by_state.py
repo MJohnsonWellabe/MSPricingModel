@@ -20,6 +20,9 @@ def test_rerates_by_state_round_trips():
 def test_duration1_rerate_raises_first_year_premium():
     a = copy.deepcopy(default_assumptions())   # lru_cached — never mutate in place
     a.rerates.solve = False
+    # isolate the premium mechanic: a higher dur-1 rerate would also lift UW antiselective
+    # lapse (and thus year-1 average lives / earned premium), so turn that load off here.
+    a.rerates.antiselection_lambda_lapse = 0.0
     cfg = RunConfig(states=["TX", "AZ"])
     base, _ = run(default_cells(), copy.deepcopy(a), cfg)
     a.rerates.by_state["TX"] = [0.05] + list(a.rerates.specified_rerates[1:])
